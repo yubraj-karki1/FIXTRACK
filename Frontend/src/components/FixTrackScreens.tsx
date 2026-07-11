@@ -450,7 +450,8 @@ export function TotpLoginPage() {
     <AuthShell title="Two-factor verification" subtitle="Enter the 6-digit code from your authenticator app.">
       <form className="form" onSubmit={verify}>
         {error && <p className="validation">{error}</p>}
-        <Input label="Authenticator code" inputMode="numeric" maxLength={6} value={token} onChange={(event) => setToken(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="123456" required />
+        <Input label="Authenticator code" inputMode="numeric" maxLength={6} value={token} 
+        onChange={(event) => setToken(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="123456" required />
         <button className="button button-primary full" type="submit">
           Verify and continue
         </button>
