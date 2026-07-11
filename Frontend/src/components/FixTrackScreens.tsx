@@ -85,7 +85,8 @@ function getDashboardPath(userOrEmail: User | string): string {
   const email = (typeof userOrEmail === 'string' ? userOrEmail : userOrEmail.email).toLowerCase();
 
   if (isAdminUser(userOrEmail)) return '/admin';
-  if (role === 'Maintenance Staff' || email.includes('staff') || email.includes('maintenance') || email.includes('ramesh') || email.includes('mina')) return '/staff';
+  if (role === 'Maintenance Staff' || email.includes('staff') || email.includes('maintenance') 
+    || email.includes('ramesh') || email.includes('mina')) return '/staff';
   return '/student';
 }
 
