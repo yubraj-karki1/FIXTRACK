@@ -7,7 +7,7 @@ import type { AuthLoginResponse, TotpSetupResponse, User } from '../types/index.
 const issuer = 'FixTrack';
 
 function withoutTotpSecrets(user: User): User {
-  const { password, totpSecret, pendingTotpSecret, ...safeUser } = user;
+  const { password, failedLoginAttempts, lockedUntil, totpSecret, pendingTotpSecret, ...safeUser } = user;
   return safeUser;
 }
 

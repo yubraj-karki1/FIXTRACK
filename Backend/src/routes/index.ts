@@ -7,6 +7,14 @@ import { userController } from '../controller/user.controller.js';
 import type { LoginRequestDto, TotpSetupRequestDto, TotpVerifyRequestDto } from '../dtos/auth.dto.js';
 import type { CreateUserDto } from '../dtos/user.dto.js';
 import { HttpError } from '../errors/http-error.js';
+import { assertRateLimit } from '../middlewares/rate-limit.middleware.js';
+import {
+  complaintIdValidationSchema,
+  loginValidationSchema,
+  registerValidationSchema,
+  searchValidationSchema,
+  validateRequest
+} from '../middlewares/validation.middleware.js';
 import { readJsonBody } from './body.js';
 
 export async function handleRoutes(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -19,24 +27,33 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
       return;
     }
 
+    assertRateLimit(request, url.pathname);
+
     if (request.method === 'GET' && url.pathname === '/api/health') {
       applicationController.health(response);
       return;
     }
 
     if (request.method === 'GET' && url.pathname === '/api/users') {
+      await validateRequest({ query: Object.fromEntries(url.searchParams) }, searchValidationSchema, 'query');
       await userController.list(response);
       return;
     }
 
     if (request.method === 'POST' && url.pathname === '/api/users') {
-      const body = await readJsonBody<CreateUserDto>(request);
+      const body = await validateRequest<CreateUserDto>(
+        { body: await readJsonBody<Record<string, unknown>>(request) },
+        registerValidationSchema
+      );
       await userController.create(response, body);
       return;
     }
 
     if (request.method === 'POST' && url.pathname === '/api/auth/login') {
-      const body = await readJsonBody<LoginRequestDto>(request);
+      const body = await validateRequest<LoginRequestDto>(
+        { body: await readJsonBody<Record<string, unknown>>(request) },
+        loginValidationSchema
+      );
       await authController.login(response, body);
       return;
     }
@@ -76,13 +93,15 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
     }
 
     if (request.method === 'GET' && url.pathname === '/api/complaints') {
+      await validateRequest({ query: Object.fromEntries(url.searchParams) }, searchValidationSchema, 'query');
       await complaintController.list(response);
       return;
     }
 
     const complaintMatch = url.pathname.match(/^\/api\/complaints\/([^/]+)$/);
     if (request.method === 'GET' && complaintMatch) {
-      await complaintController.detail(response, complaintMatch[1]);
+      const params = await validateRequest<{ id: string }>({ params: { id: complaintMatch[1] } }, complaintIdValidationSchema, 'params');
+      await complaintController.detail(response, params.id);
       return;
     }
 
@@ -97,7 +116,12 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
         return;
       }
 
-      sendJson(response, error.statusCode, { data: null, message: error.message });
+      Object.entries(error.headers).forEach(([key, value]) => response.setHeader(key, value));
+      sendJson(response, error.statusCode, {
+        data: null,
+        message: error.message,
+        ...(error.errors.length ? { errors: error.errors } : {})
+      });
       return;
     }
 

@@ -23,6 +23,8 @@ export interface User {
   status: AccountStatus;
   studentId?: string;
   password?: string;
+  failedLoginAttempts?: number;
+  lockedUntil?: string;
   totpSecret?: string;
   pendingTotpSecret?: string;
   totpEnabled?: boolean;
@@ -57,6 +59,7 @@ export interface ComplaintUpdate {
 export interface ApiResponse<T> {
   data: T;
   message?: string;
+  errors?: Array<{ field: string; message: string }>;
 }
 
 export interface HealthResponse {

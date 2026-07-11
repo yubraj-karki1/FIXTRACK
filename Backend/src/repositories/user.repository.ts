@@ -1,3 +1,4 @@
+import type { UpdateFilter } from 'mongodb';
 import { database, mongo, saveUsers } from '../database/index.js';
 import type { User } from '../types/index.js';
 
@@ -41,14 +42,27 @@ export const userRepository = {
 
   async update(id: string, updates: Partial<User>): Promise<User | undefined> {
     if (mongo.isConnected) {
-      await mongo.users().updateOne({ id }, { $set: updates });
+      const fieldsToSet = Object.fromEntries(Object.entries(updates).filter(([, value]) => value !== undefined)) as Partial<User>;
+      const fieldsToUnset = Object.fromEntries(Object.entries(updates).filter(([, value]) => value === undefined).map(([key]) => [key, '' as const]));
+      const update: UpdateFilter<User> = {
+        ...(Object.keys(fieldsToSet).length ? { $set: fieldsToSet } : {}),
+        ...(Object.keys(fieldsToUnset).length ? { $unset: fieldsToUnset } : {})
+      };
+      await mongo.users().updateOne({ id }, update);
       return this.findById(id);
     }
 
     const user = database.users.find((item) => item.id === id);
     if (!user) return undefined;
 
-    Object.assign(user, updates);
+    Object.entries(updates).forEach(([key, value]) => {
+      if (value === undefined) {
+        delete user[key as keyof User];
+        return;
+      }
+
+      Object.assign(user, { [key]: value });
+    });
     saveUsers();
     return user;
   }

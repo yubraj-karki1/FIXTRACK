@@ -6,7 +6,7 @@ import { hashPassword, validatePasswordStrength } from './password.service.js';
 import type { User } from '../types/index.js';
 
 function withoutPrivateFields(user: User): User {
-  const { password, totpSecret, pendingTotpSecret, ...safeUser } = user;
+  const { password, failedLoginAttempts, lockedUntil, totpSecret, pendingTotpSecret, ...safeUser } = user;
   return safeUser;
 }
 

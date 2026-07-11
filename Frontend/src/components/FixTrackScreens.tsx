@@ -145,6 +145,34 @@ function getPasswordStrengthLabel(score: number): string {
   return 'Very strong';
 }
 
+function cleanClientText(value: FormDataEntryValue | string | null, maxLength = 120): string {
+  return String(value || '')
+    .replace(/[<>]/g, '')
+    .replace(/[\u0000-\u001F\u007F]/g, '')
+    .trim()
+    .slice(0, maxLength);
+}
+
+function cleanSearchText(value: string): string {
+  return cleanClientText(value, 80);
+}
+
+function isValidName(value: string): boolean {
+  return /^[A-Za-z\s'.-]{2,80}$/.test(value);
+}
+
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) && value.length <= 120;
+}
+
+function isValidPhone(value: string): boolean {
+  return /^\+?[0-9\s-]{7,20}$/.test(value);
+}
+
+function isValidRoom(value: string): boolean {
+  return /^[A-Za-z0-9\s-]{1,20}$/.test(value);
+}
+
 const totpUsersStorageKey = 'fixtrack:totp-users';
 
 function getStoredTotpUsers(): Record<string, string> {
