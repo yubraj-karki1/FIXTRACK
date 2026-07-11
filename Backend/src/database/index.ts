@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { Collection, Db, MongoClient, OptionalUnlessRequiredId } from 'mongodb';
 import { config } from '../config/index.js';
 import { complaints, users as seedUsers } from '../data/index.js';
+import { ensurePasswordHash } from '../services/password.service.js';
 import type { Complaint, User } from '../types/index.js';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -12,16 +13,34 @@ let client: MongoClient | null = null;
 let mongoDatabase: Db | null = null;
 
 function loadUsers(): User[] {
+  let loadedUsers: User[];
+
   if (!existsSync(usersFile)) {
-    return seedUsers;
+    loadedUsers = seedUsers;
+  } else {
+    try {
+      const storedUsers = JSON.parse(readFileSync(usersFile, 'utf8')) as User[];
+      loadedUsers = storedUsers.length ? storedUsers : seedUsers;
+    } catch {
+      loadedUsers = seedUsers;
+    }
   }
 
-  try {
-    const storedUsers = JSON.parse(readFileSync(usersFile, 'utf8')) as User[];
-    return storedUsers.length ? storedUsers : seedUsers;
-  } catch {
-    return seedUsers;
+  const hashedUsers = loadedUsers.map(hashUserPassword);
+  if (hashedUsers.some((user, index) => user.password !== loadedUsers[index]?.password)) {
+    persistUsers(hashedUsers);
   }
+
+  return hashedUsers;
+}
+
+function hashUserPassword(user: User): User {
+  return { ...user, password: ensurePasswordHash(user.password) };
+}
+
+function persistUsers(users: User[]): void {
+  mkdirSync(dirname(usersFile), { recursive: true });
+  writeFileSync(usersFile, JSON.stringify(users, null, 2));
 }
 
 export const database = {
@@ -62,8 +81,21 @@ export async function connectDatabase(): Promise<void> {
   await mongo.users().createIndex({ email: 1 }, { unique: true });
   await seedMongoCollection(mongo.users(), database.users);
   await seedMongoCollection(mongo.complaints(), database.complaints);
+  await migrateMongoPasswords();
 
   console.log(`MongoDB connected: ${config.mongodbDatabase}`);
+}
+
+async function migrateMongoPasswords(): Promise<void> {
+  const users = await mongo.users().find({}, { projection: { _id: 0 } }).toArray();
+  await Promise.all(
+    users.map(async (user) => {
+      const hashedPassword = ensurePasswordHash(user.password);
+      if (hashedPassword && hashedPassword !== user.password) {
+        await mongo.users().updateOne({ id: user.id }, { $set: { password: hashedPassword } });
+      }
+    })
+  );
 }
 
 async function seedMongoCollection<T extends { id: string }>(collection: Collection<T>, records: T[]): Promise<void> {
@@ -74,6 +106,5 @@ async function seedMongoCollection<T extends { id: string }>(collection: Collect
 }
 
 export function saveUsers(): void {
-  mkdirSync(dirname(usersFile), { recursive: true });
-  writeFileSync(usersFile, JSON.stringify(database.users, null, 2));
+  persistUsers(database.users);
 }

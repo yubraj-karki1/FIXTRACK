@@ -9,6 +9,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "google-auth-library": "^10.9.0",
     "i": "^0.3.7",
     "mongodb": "^7.4.0",
@@ -16,6 +17,7 @@
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@types/node": "latest",
     "@types/qrcode": "^1.5.6",
     "tsx": "latest",

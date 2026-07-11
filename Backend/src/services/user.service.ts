@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { userRepository } from '../repositories/user.repository.js';
 import type { CreateUserDto } from '../dtos/user.dto.js';
 import { HttpError } from '../errors/http-error.js';
+import { hashPassword, validatePasswordStrength } from './password.service.js';
 import type { User } from '../types/index.js';
 
 function withoutPrivateFields(user: User): User {
@@ -24,6 +26,11 @@ export const userService = {
       throw new HttpError(400, 'Email and password are required');
     }
 
+    const passwordValidation = validatePasswordStrength(input.password, email);
+    if (!passwordValidation.valid) {
+      throw new HttpError(400, passwordValidation.errors.join(' '));
+    }
+
     if (await userRepository.findByEmail(email)) {
       throw new HttpError(409, 'An account with this email already exists');
     }
@@ -34,7 +41,7 @@ export const userService = {
       studentId: input.studentId?.trim(),
       role: input.role,
       email,
-      password: input.password,
+      password: await hashPassword(input.password),
       phone: input.phone.trim(),
       building: input.building,
       room: input.room.trim(),
@@ -61,7 +68,7 @@ export const userService = {
       name: input.name.trim() || email.split('@')[0],
       role: 'Student',
       email,
-      password: `google:${Date.now()}`,
+      password: await hashPassword(`google:${randomUUID()}`),
       phone: '',
       building: 'Maple Hall',
       room: '-',

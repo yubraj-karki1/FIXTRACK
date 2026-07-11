@@ -21,6 +21,7 @@ import {
   Filter,
   ImagePlus,
   LayoutDashboard,
+  LogIn,
   LogOut,
   Menu,
   Plus,
@@ -83,9 +84,65 @@ function getDashboardPath(userOrEmail: User | string): string {
   const role = typeof userOrEmail === 'string' ? '' : userOrEmail.role;
   const email = (typeof userOrEmail === 'string' ? userOrEmail : userOrEmail.email).toLowerCase();
 
-  if (role === 'Administrator' || email.includes('admin')) return '/admin';
+  if (isAdminUser(userOrEmail)) return '/admin';
   if (role === 'Maintenance Staff' || email.includes('staff') || email.includes('maintenance') || email.includes('ramesh') || email.includes('mina')) return '/staff';
   return '/student';
+}
+
+function isAdminUser(userOrEmail?: User | string): boolean {
+  if (!userOrEmail) return false;
+
+  const role = typeof userOrEmail === 'string' ? '' : userOrEmail.role;
+  const email = (typeof userOrEmail === 'string' ? userOrEmail : userOrEmail.email).toLowerCase();
+  return role === 'Administrator' || email.includes('admin');
+}
+
+function isAdminOnlyPath(path?: string | null): boolean {
+  return !!path && (path === '/complaints/new' || path === '/admin' || path.startsWith('/admin/'));
+}
+
+function getLoginTarget(requestedNext: string | null, userOrEmail: User | string): string {
+  if (requestedNext && (!isAdminOnlyPath(requestedNext) || isAdminUser(userOrEmail))) {
+    return requestedNext;
+  }
+
+  return getDashboardPath(userOrEmail);
+}
+
+interface PasswordRule {
+  label: string;
+  met: boolean;
+}
+
+function getPasswordRules(password: string, email: string): PasswordRule[] {
+  const normalizedPassword = password.toLowerCase();
+  const normalizedEmail = email.trim().toLowerCase();
+  const emailName = normalizedEmail.split('@')[0] || '';
+  const containsEmail =
+    Boolean(normalizedEmail && normalizedPassword.includes(normalizedEmail)) ||
+    Boolean(emailName.length >= 3 && normalizedPassword.includes(emailName));
+
+  return [
+    { label: '8 to 20 characters', met: password.length >= 8 && password.length <= 20 },
+    { label: 'One uppercase letter', met: /[A-Z]/.test(password) },
+    { label: 'One lowercase letter', met: /[a-z]/.test(password) },
+    { label: 'One number', met: /\d/.test(password) },
+    { label: 'One special character', met: /[^A-Za-z0-9]/.test(password) },
+    { label: 'Does not contain your email', met: !containsEmail }
+  ];
+}
+
+function getPasswordErrors(password: string, email: string): string[] {
+  return getPasswordRules(password, email)
+    .filter((rule) => !rule.met)
+    .map((rule) => rule.label);
+}
+
+function getPasswordStrengthLabel(score: number): string {
+  if (score <= 2) return 'Weak';
+  if (score <= 4) return 'Medium';
+  if (score === 5) return 'Strong';
+  return 'Very strong';
 }
 
 const totpUsersStorageKey = 'fixtrack:totp-users';
@@ -168,8 +225,8 @@ export function LandingPage() {
             organized from assignment to resolution.
           </p>
           <div className="hero-actions">
-            <Link className="button button-primary" href="/login?next=%2Fcomplaints%2Fnew">
-              <Plus /> Report an Issue
+            <Link className="button button-primary" href="/login">
+              <LogIn /> Login
             </Link>
             <Link className="button button-secondary" href="/login?next=%2Fcomplaints">
               <Search /> Track Your Complaint
@@ -270,7 +327,7 @@ export function LoginPage() {
       const user = JSON.parse(window.atob(normalized)) as User;
       setCurrentUser({ ...user, photo: '' });
       notify('Logged in with Google.');
-      router.replace(searchParams.get('next') || getDashboardPath(user));
+      router.replace(getLoginTarget(searchParams.get('next'), user));
     } catch {
       setError('Unable to finish Google login.');
     }
@@ -287,7 +344,8 @@ export function LoginPage() {
     try {
       const login = await api.login(email, password);
       const matchedUser = users.find((user) => user.email.toLowerCase() === email);
-      const target = requestedNext || (login.user ? getDashboardPath(login.user) : getDashboardPath(matchedUser || email));
+      const loginUser = login.user || matchedUser || email;
+      const target = getLoginTarget(requestedNext, loginUser);
 
       if (login.requiresTotp && login.userId) {
         if (matchedUser) rememberTotpUser({ ...matchedUser, id: login.userId, totpEnabled: true });
@@ -353,7 +411,7 @@ export function TotpLoginPage() {
       setCurrentUser({ ...user, photo: '' });
       rememberTotpUser({ ...user, totpEnabled: true });
       notify('Two-factor authentication verified.');
-      router.push(next);
+      router.push(getLoginTarget(next, user));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Invalid authenticator code.');
     }
@@ -379,13 +437,22 @@ export function RegisterPage() {
   const router = useRouter();
   const { notify, setCurrentUser } = useFixTrack();
   const [error, setError] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   const handleRegister = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
     const data = new FormData(event.currentTarget);
+    const emailAddress = String(data.get('email-address') || '').toLowerCase();
     const password = String(data.get('password') || '');
     const confirmPassword = String(data.get('confirm-password') || '');
+    const passwordErrors = getPasswordErrors(password, emailAddress);
+
+    if (passwordErrors.length) {
+      setError(`Password requirements missing: ${passwordErrors.join(', ')}.`);
+      return;
+    }
 
     if (password !== confirmPassword) {
       setError('Passwords do not match.');
@@ -396,7 +463,7 @@ export function RegisterPage() {
       const user = await api.register({
         name: String(data.get('full-name') || 'New Student'),
         studentId: String(data.get('student-id') || ''),
-        email: String(data.get('email-address') || '').toLowerCase(),
+        email: emailAddress,
         password,
         phone: String(data.get('phone-number') || ''),
         building: String(data.get('hostel-building') || buildings[0]),
@@ -417,12 +484,13 @@ export function RegisterPage() {
         {error && <p className="validation span-2">{error}</p>}
         <Input label="Full name" required />
         <Input label="Student ID" placeholder="STU-2026-014" required />
-        <Input label="Email address" type="email" required />
+        <Input label="Email address" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
         <Input label="Phone number" required />
         <Select label="Hostel building" options={buildings.slice(0, 4)} />
         <Input label="Room number" required />
-        <Input label="Password" type="password" required />
+        <Input label="Password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
         <Input label="Confirm password" type="password" required />
+        <PasswordStrengthFeedback password={password} email={email} />
         <button className="button button-primary full span-2" type="submit">
           Register
         </button>
@@ -434,22 +502,49 @@ export function RegisterPage() {
   );
 }
 
+function PasswordStrengthFeedback({ password, email }: { password: string; email: string }) {
+  const rules = getPasswordRules(password, email);
+  const score = rules.filter((rule) => rule.met).length;
+  const strengthLabel = getPasswordStrengthLabel(score);
+
+  return (
+    <div className="password-strength span-2" aria-live="polite">
+      <div className="strength-summary">
+        <span>Password strength</span>
+        <strong>{password ? strengthLabel : 'Not started'}</strong>
+      </div>
+      <div className="strength-meter" aria-hidden="true">
+        <span style={{ width: `${(score / rules.length) * 100}%` }} />
+      </div>
+      <div className="password-rules">
+        {rules.map((rule) => (
+          <span key={rule.label} className={rule.met ? 'met' : ''}>
+            {rule.met ? 'OK' : '-'} {rule.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function DashboardLayout({ children }: PropsWithChildren) {
   const [open, setOpen] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
   const { currentUser, setCurrentUser, notify } = useFixTrack();
-  const nav: Array<[string, string, LucideIcon]> = [
+  const isAdmin = isAdminUser(currentUser);
+  const nav: Array<[string, string, LucideIcon, boolean?]> = [
     ['Student', '/student', LayoutDashboard],
-    ['New Issue', '/complaints/new', Plus],
     ['My Complaints', '/complaints', ClipboardCheck],
     ['Staff', '/staff', BriefcaseBusiness],
-    ['Admin', '/admin', UserCog],
-    ['Manage Reports', '/admin/complaints', Archive],
-    ['Users', '/admin/users', Users],
+    ['Add Panel', '/complaints/new', Plus, true],
+    ['Admin', '/admin', UserCog, true],
+    ['Manage Reports', '/admin/complaints', Archive, true],
+    ['Users', '/admin/users', Users, true],
     ['Profile', '/profile', Settings]
   ];
+  const visibleNav = nav.filter(([, , , adminOnly]) => !adminOnly || isAdmin);
 
   const confirmLogout = () => {
     setShowLogoutConfirm(false);
@@ -470,7 +565,7 @@ export function DashboardLayout({ children }: PropsWithChildren) {
           </button>
         </div>
         <nav>
-          {nav.map(([label, href, Icon]) => (
+          {visibleNav.map(([label, href, Icon]) => (
             <Link key={href} className={pathname === href ? 'active' : ''} href={href} onClick={() => setOpen(false)}>
               <Icon /> {label}
             </Link>
@@ -516,6 +611,36 @@ export function DashboardLayout({ children }: PropsWithChildren) {
   );
 }
 
+function AdminOnlyGate({
+  title,
+  description,
+  children
+}: PropsWithChildren<{ title: string; description: string }>) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const { currentUser } = useFixTrack();
+  const isAdmin = isAdminUser(currentUser);
+
+  useEffect(() => {
+    if (!isAdmin) {
+      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+    }
+  }, [isAdmin, pathname, router]);
+
+  if (!isAdmin) {
+    return (
+      <>
+        <PageHeader title={title} description={description} />
+        <Panel>
+          <EmptyState title="Admin login required" text="Only administrators can access this panel." />
+        </Panel>
+      </>
+    );
+  }
+
+  return <>{children}</>;
+}
+
 export function StudentDashboardPage() {
   const { complaints, currentUser } = useFixTrack();
   const mine = complaints.filter((complaint) => complaint.student === currentUser.name);
@@ -523,7 +648,7 @@ export function StudentDashboardPage() {
 
   return (
     <>
-      <PageHeader title={`Welcome, ${currentUser.name.split(' ')[0] || 'Student'}`} description="Track your hostel repairs and report new issues in a few clicks." action={<Link className="button button-primary" href="/complaints/new"><Plus /> Report New Issue</Link>} />
+      <PageHeader title={`Welcome, ${currentUser.name.split(' ')[0] || 'Student'}`} description="Track your hostel repairs and follow maintenance updates in a few clicks." action={<Link className="button button-primary" href="/complaints"><ClipboardCheck /> My Complaints</Link>} />
       <StatsGrid
         stats={[
           { label: 'Total complaints', value: mine.length, icon: FileText },
@@ -534,7 +659,7 @@ export function StudentDashboardPage() {
       />
       <section className="category-strip">
         {iconCategories.map(({ name, icon: Icon }) => (
-          <Link href="/complaints/new" key={name}>
+          <Link href="/complaints" key={name}>
             <Icon />
             {name}
           </Link>
@@ -590,7 +715,7 @@ export function CreateComplaintPage() {
   };
 
   return (
-    <>
+    <AdminOnlyGate title="Add panel" description="Create maintenance complaints from the administrator workspace.">
       <PageHeader title="Create complaint" description="Add the details maintenance staff need to inspect and resolve the issue." />
       <Panel>
         <form className="form complaint-form" onSubmit={submit}>
@@ -623,7 +748,7 @@ export function CreateComplaintPage() {
           </button>
         </form>
       </Panel>
-    </>
+    </AdminOnlyGate>
   );
 }
 
@@ -771,7 +896,7 @@ export function AdminDashboardPage() {
   const byBuilding = aggregate(complaints, 'building');
 
   return (
-    <>
+    <AdminOnlyGate title="Admin dashboard" description="Only administrators can monitor hostel-wide maintenance, assignments, and users.">
       <PageHeader title="Admin dashboard" description="Monitor hostel-wide maintenance, assignments, activity, and emergency work." />
       <StatsGrid
         stats={[
@@ -791,7 +916,7 @@ export function AdminDashboardPage() {
         <Panel title="Staff workload overview">{['Ramesh Karki', 'Mina Gurung', 'Unassigned'].map((staff) => <Workload key={staff} name={staff} count={complaints.filter((complaint) => complaint.staff === staff).length} />)}</Panel>
         <Panel title="Building-wise summary">{byBuilding.map((building) => <Workload key={building.name} name={building.name} count={building.value} />)}</Panel>
       </div>
-    </>
+    </AdminOnlyGate>
   );
 }
 
@@ -814,7 +939,7 @@ export function AdminComplaintsPage() {
   };
 
   return (
-    <>
+    <AdminOnlyGate title="Complaint management" description="Only administrators can assign staff, change priority, and update complaint history.">
       <PageHeader title="Complaint management" description="Assign staff, change priority or status, and view complaint history." />
       <Panel>
         <div className="table-tools">
@@ -862,7 +987,7 @@ export function AdminComplaintsPage() {
           </table>
         </div>
       </Panel>
-    </>
+    </AdminOnlyGate>
   );
 }
 
@@ -872,7 +997,7 @@ export function UserManagementPage() {
   const filtered = users.filter((user) => `${user.name} ${user.email} ${user.role}`.toLowerCase().includes(query.toLowerCase()));
 
   return (
-    <>
+    <AdminOnlyGate title="User management" description="Only administrators can manage users, account status, and roles.">
       <PageHeader title="User management" description="Manage students, maintenance staff, administrators, account status, and roles." />
       <Panel>
         <div className="table-tools">
@@ -901,7 +1026,7 @@ export function UserManagementPage() {
           ))}
         </div>
       </Panel>
-    </>
+    </AdminOnlyGate>
   );
 }
 

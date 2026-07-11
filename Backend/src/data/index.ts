@@ -1,11 +1,11 @@
 import type { Complaint, User } from '../types/index.js';
 
 export const users: User[] = [
-  { id: 'U-1001', name: 'Aarav Sharma', studentId: 'STU-2026-014', role: 'Student', email: 'aarav@hostel.edu', password: 'password123', phone: '+977 9800001111', building: 'Maple Hall', room: '204', status: 'Active', totpEnabled: false },
-  { id: 'U-1002', name: 'Nisha Thapa', studentId: 'STU-2026-018', role: 'Student', email: 'nisha@hostel.edu', password: 'password123', phone: '+977 9800002222', building: 'Cedar Block', room: '118', status: 'Active', totpEnabled: false },
-  { id: 'U-2001', name: 'Ramesh Karki', role: 'Maintenance Staff', email: 'ramesh@hostel.edu', password: 'password123', phone: '+977 9800003333', building: 'All Buildings', room: '-', status: 'Active', totpEnabled: false },
-  { id: 'U-2002', name: 'Mina Gurung', role: 'Maintenance Staff', email: 'mina@hostel.edu', password: 'password123', phone: '+977 9800004444', building: 'North Wing', room: '-', status: 'Active', totpEnabled: false },
-  { id: 'U-3001', name: 'Hostel Admin', role: 'Administrator', email: 'admin@hostel.edu', password: 'password123', phone: '+977 9800005555', building: 'Admin Office', room: 'A-01', status: 'Active', totpEnabled: false }
+  { id: 'U-1001', name: 'Aarav Sharma', studentId: 'STU-2026-014', role: 'Student', email: 'aarav@hostel.edu', password: '$2b$12$ULESi4OZWxR37TohxHCzzOURJkrjR8l3LczctnFzhk1zLyvgFq24K', phone: '+977 9800001111', building: 'Maple Hall', room: '204', status: 'Active', totpEnabled: false },
+  { id: 'U-1002', name: 'Nisha Thapa', studentId: 'STU-2026-018', role: 'Student', email: 'nisha@hostel.edu', password: '$2b$12$ULESi4OZWxR37TohxHCzzOURJkrjR8l3LczctnFzhk1zLyvgFq24K', phone: '+977 9800002222', building: 'Cedar Block', room: '118', status: 'Active', totpEnabled: false },
+  { id: 'U-2001', name: 'Ramesh Karki', role: 'Maintenance Staff', email: 'ramesh@hostel.edu', password: '$2b$12$ULESi4OZWxR37TohxHCzzOURJkrjR8l3LczctnFzhk1zLyvgFq24K', phone: '+977 9800003333', building: 'All Buildings', room: '-', status: 'Active', totpEnabled: false },
+  { id: 'U-2002', name: 'Mina Gurung', role: 'Maintenance Staff', email: 'mina@hostel.edu', password: '$2b$12$ULESi4OZWxR37TohxHCzzOURJkrjR8l3LczctnFzhk1zLyvgFq24K', phone: '+977 9800004444', building: 'North Wing', room: '-', status: 'Active', totpEnabled: false },
+  { id: 'U-3001', name: 'Hostel Admin', role: 'Administrator', email: 'admin@hostel.edu', password: '$2b$12$ULESi4OZWxR37TohxHCzzOURJkrjR8l3LczctnFzhk1zLyvgFq24K', phone: '+977 9800005555', building: 'Admin Office', room: 'A-01', status: 'Active', totpEnabled: false }
 ];
 
 export const complaints: Complaint[] = [
