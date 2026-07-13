@@ -1,9 +1,14 @@
+//FixTrack Backend Server Entry Point
+//Initializes HTTP server, database connection, applies middleware, and handles all API routes.
+//Implements error handling for port conflicts and graceful shutdown.
+
 import { createServer } from 'node:http';
 import { config } from './config/index.js';
 import { connectDatabase } from './database/index.js';
 import { applyCors } from './middlewares/cors.middleware.js';
 import { handleRoutes } from './routes/index.js';
 
+// Create HTTP server with CORS middleware and route handler
 const server = createServer((request, response) => {
   applyCors(request, response);
   void handleRoutes(request, response);

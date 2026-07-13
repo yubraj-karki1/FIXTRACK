@@ -1,3 +1,8 @@
+//FixTrack Frontend Components
+//Main component file containing all page layouts, forms, and UI components for the hostel
+//maintenance complaint tracking system. Includes student dashboard, complaint management,
+//staff workflow, admin panels, and authentication pages.
+
 'use client';
 
 import Link from 'next/link';
@@ -80,6 +85,9 @@ const iconCategories: IconCategory[] = categories.map((category) => ({
   icon: categoryIcons[category.name]
 }));
 
+
+//Determines the appropriate dashboard path based on user role
+
 function getDashboardPath(userOrEmail: User | string): string {
   const role = typeof userOrEmail === 'string' ? '' : userOrEmail.role;
   const email = (typeof userOrEmail === 'string' ? userOrEmail : userOrEmail.email).toLowerCase();
@@ -89,7 +97,7 @@ function getDashboardPath(userOrEmail: User | string): string {
     || email.includes('ramesh') || email.includes('mina')) return '/staff';
   return '/student';
 }
-
+ 
 function isAdminUser(userOrEmail?: User | string): boolean {
   if (!userOrEmail) return false;
 
@@ -115,6 +123,10 @@ interface PasswordRule {
   met: boolean;
 }
 
+
+// Validates password against security rules and returns compliance status for each rule
+// Rules: length (8-20), uppercase, lowercase, number, special character, no email
+ 
 function getPasswordRules(password: string, email: string): PasswordRule[] {
   const normalizedPassword = password.toLowerCase();
   const normalizedEmail = email.trim().toLowerCase();
@@ -139,12 +151,18 @@ function getPasswordErrors(password: string, email: string): string[] {
     .map((rule) => rule.label);
 }
 
+
+// Converts password strength score (0-6) to user-friendly label
+
 function getPasswordStrengthLabel(score: number): string {
   if (score <= 2) return 'Weak';
   if (score <= 4) return 'Medium';
   if (score === 5) return 'Strong';
   return 'Very strong';
 }
+
+//Sanitizes client-side text input by removing HTML tags, control characters,
+//and trimming to specified length. Prevents XSS attacks.
 
 function cleanClientText(value: FormDataEntryValue | string | null, maxLength = 120): string {
   return String(value || '')
@@ -173,6 +191,9 @@ function isValidPhone(value: string): boolean {
 function isValidRoom(value: string): boolean {
   return /^[A-Za-z0-9\s-]{1,20}$/.test(value);
 }
+
+//TOTP (Two-Factor Authentication) local storage utilities
+//Stores and retrieves user IDs for TOTP-enabled accounts to skip QR code on repeat logins
 
 const totpUsersStorageKey = 'fixtrack:totp-users';
 
@@ -328,6 +349,10 @@ function AuthShell({ title, subtitle, children }: PropsWithChildren<{ title: str
     </main>
   );
 }
+
+//Login page - Email/password authentication with Google login option and TOTP support
+//Handles redirects based on user role and requested destination
+
 export function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -419,6 +444,10 @@ export function LoginPage() {
     </AuthShell>
   );
 }
+
+// Two-factor authentication verification page
+// Allows users with TOTP enabled to enter their 6-digit authenticator code
+ 
 export function TotpLoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -458,6 +487,11 @@ export function TotpLoginPage() {
     </AuthShell>
   );
 }
+
+// Student account registration page
+// Collects student details (name, ID, email, phone, building, room) and creates new account
+// Validates password strength and shows real-time feedback.
+
 export function RegisterPage() {
   const router = useRouter();
   const { notify, setCurrentUser } = useFixTrack();
@@ -546,6 +580,7 @@ function PasswordStrengthFeedback({ password, email }: { password: string; email
     </div>
   );
 }
+
 export function DashboardLayout({ children }: PropsWithChildren) {
   const [open, setOpen] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -628,6 +663,7 @@ export function DashboardLayout({ children }: PropsWithChildren) {
     </div>
   );
 }
+
 function AdminOnlyGate({
   title,
   description,
@@ -657,6 +693,7 @@ function AdminOnlyGate({
 
   return <>{children}</>;
 }
+
 export function StudentDashboardPage() {
   const { complaints, currentUser } = useFixTrack();
   const mine = complaints.filter((complaint) => complaint.student === currentUser.name);
@@ -692,6 +729,7 @@ export function StudentDashboardPage() {
     </>
   );
 }
+
 export function CreateComplaintPage() {
   const router = useRouter();
   const { complaints, setComplaints, notify, currentUser } = useFixTrack();
@@ -766,6 +804,7 @@ export function CreateComplaintPage() {
   );
 }
 
+
 export function MyComplaintsPage() {
   const { complaints, currentUser } = useFixTrack();
   const [query, setQuery] = useState('');
@@ -787,6 +826,7 @@ export function MyComplaintsPage() {
     </>
   );
 }
+
 
 export function ComplaintDetailPage({ id }: { id: string }) {
   const { complaints, setComplaints, notify } = useFixTrack();
@@ -837,6 +877,7 @@ export function ComplaintDetailPage({ id }: { id: string }) {
     </>
   );
 }
+
 
 export function StaffDashboardPage() {
   const { complaints, setComplaints, notify } = useFixTrack();
@@ -903,6 +944,7 @@ export function StaffDashboardPage() {
   );
 }
 
+
 export function AdminDashboardPage() {
   const { complaints } = useFixTrack();
   const byCategory = aggregate(complaints, 'category');
@@ -933,6 +975,7 @@ export function AdminDashboardPage() {
     </AdminOnlyGate>
   );
 }
+
 
 export function AdminComplaintsPage() {
   const { complaints, setComplaints, notify } = useFixTrack();
@@ -1004,6 +1047,7 @@ export function AdminComplaintsPage() {
     </AdminOnlyGate>
   );
 }
+
 
 export function UserManagementPage() {
   const { complaints, notify } = useFixTrack();
