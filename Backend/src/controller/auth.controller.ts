@@ -149,6 +149,13 @@ export const authController = {
     }
   },
 
+  async csrfToken(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    // The frontend obtains a fresh, session-bound token after every successful /auth/me check.
+    const token = await sessionService.createCsrfToken(request);
+    response.setHeader('Cache-Control', 'no-store');
+    sendJson<{ token: string }>(response, 200, { data: { token } });
+  },
+
   logout(response: ServerResponse): void {
     // HttpOnly cookies can only be cleared by the server using matching attributes.
     sessionService.clearAuthentication(response);

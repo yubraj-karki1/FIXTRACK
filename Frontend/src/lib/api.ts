@@ -2,6 +2,11 @@ import type { AuthLoginResponse, TotpSetupResponse, User } from '@/types';
 
 // Empty uses Next's same-origin API rewrite; a configured value supports a separate backend host.
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
+const csrfProtectedMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+// This module value exists only for the lifetime of the open tab. It is deliberately never
+// written to localStorage, sessionStorage, a URL, or a browser-readable authentication cookie.
+let csrfToken: string | null = null;
 
 interface ApiResponse<T> {
   data: T;
@@ -10,6 +15,18 @@ interface ApiResponse<T> {
 
 async function request<T>(path: string, init?: RequestInit): Promise<ApiResponse<T>> {
   let response: Response;
+  const method = (init?.method || 'GET').toUpperCase();
+  const headers = new Headers(init?.headers);
+
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  // A hostile site cannot read this in-memory token and CORS prevents it from setting the
+  // custom header. The backend still validates the signature and session binding.
+  if (csrfProtectedMethods.has(method) && csrfToken) {
+    headers.set('X-CSRF-Token', csrfToken);
+  }
 
   try {
     response = await fetch(`${apiBaseUrl}${path}`, {
@@ -17,10 +34,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<ApiResponse
       // Required for cross-origin development and harmless for same-origin rewrites.
       // The browser attaches HttpOnly cookies without exposing the JWT to JavaScript.
       credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        ...init?.headers
-      }
+      headers
     });
   } catch {
     throw new Error('Backend is not running. Start it with: cd backend; npm run dev');
@@ -44,6 +58,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ email, password })
     });
+    // A successful login replaces (or begins replacing) the session, so rotate the tab token.
+    csrfToken = null;
     return payload.data;
   },
 
@@ -60,6 +76,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ ...input, role: 'Student' })
     });
+    // Registration creates a fresh HttpOnly session; /auth/csrf will mint its companion token.
+    csrfToken = null;
     return payload.data;
   },
 
@@ -72,9 +90,26 @@ export const api = {
     return payload.data;
   },
 
+  async refreshCsrfToken(): Promise<void> {
+    // This authenticated, no-store GET response safely transfers a signed CSRF token to memory.
+    const payload = await request<{ token: string }>('/api/auth/csrf', {
+      method: 'GET',
+      cache: 'no-store'
+    });
+    csrfToken = payload.data.token;
+  },
+
+  clearCsrfToken(): void {
+    // Used after an expired session or successful logout; the server session binding also
+    // prevents an old token from working after any subsequent login.
+    csrfToken = null;
+  },
+
   async logout(): Promise<void> {
     // Only the backend can expire an HttpOnly cookie correctly.
     await request<null>('/api/auth/logout', { method: 'POST' });
+    // Remove the in-memory companion token only after the server confirms logout.
+    csrfToken = null;
   },
 
   async setupTotp(userId: string): Promise<TotpSetupResponse> {
@@ -99,6 +134,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ userId, token })
     });
+    csrfToken = null;
     return payload.data;
   },
 

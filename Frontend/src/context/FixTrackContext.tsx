@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from 'react';
+import { usePathname } from 'next/navigation';
 import { defaultCurrentUser, initialComplaints } from '@/data/fixtrack-data';
 import { api } from '@/lib/api';
 import type { Complaint, FixTrackContextValue, User } from '@/types';
@@ -8,6 +9,7 @@ import type { Complaint, FixTrackContextValue, User } from '@/types';
 const FixTrackContext = createContext<FixTrackContextValue | null>(null);
 
 export function FixTrackProvider({ children }: PropsWithChildren) {
+  const pathname = usePathname();
   const [complaints, setComplaints] = useState<Complaint[]>(initialComplaints);
   const [currentUser, setCurrentUser] = useState<User>(defaultCurrentUser);
   // Keep a separate status so demo data never implies the visitor is authenticated.
@@ -28,6 +30,9 @@ export function FixTrackProvider({ children }: PropsWithChildren) {
     try {
       // /auth/me verifies the signed cookie and reloads the user from server storage.
       const user = await api.getCurrentUser();
+      // Store the short-lived CSRF token only in this tab's JavaScript memory after login,
+      // Google sign-in, TOTP completion, or an authenticated page reload.
+      await api.refreshCsrfToken();
       if (requestId === refreshRequestId.current) {
         // Preserve only the local profile-photo preview; all identity fields come from the backend.
         setCurrentUser((existing) => ({
@@ -39,6 +44,7 @@ export function FixTrackProvider({ children }: PropsWithChildren) {
       return user;
     } catch {
       // An absent, expired, or invalid cookie is treated as an unauthenticated visitor.
+      api.clearCsrfToken();
       if (requestId === refreshRequestId.current) {
         setCurrentUser(defaultCurrentUser);
         setAuthStatus('unauthenticated');
@@ -56,9 +62,16 @@ export function FixTrackProvider({ children }: PropsWithChildren) {
   }, []);
 
   useEffect(() => {
+    if (pathname === '/totp') {
+      // This route has only a five-minute pre-authentication cookie, not a full session.
+      // Do not make an unnecessary /auth/me request while the user enters their code.
+      setAuthStatus('unauthenticated');
+      return;
+    }
+
     // Restores authentication after reload without reading a token in browser JavaScript.
     void refreshAuth();
-  }, [refreshAuth]);
+  }, [pathname, refreshAuth]);
 
   const value = useMemo<FixTrackContextValue>(
     () => ({ complaints, setComplaints, currentUser, setCurrentUser, authStatus, refreshAuth, logout, notify }),

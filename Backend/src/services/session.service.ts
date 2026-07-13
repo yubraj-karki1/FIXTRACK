@@ -17,11 +17,15 @@ const pendingTotpCookieName = 'fixtrack_totp_pending';
 const googleStateCookieName = 'fixtrack_google_state';
 const pendingTotpLifetimeSeconds = 5 * 60;
 const googleStateLifetimeSeconds = 10 * 60;
+// CSRF tokens are signed capabilities, not authentication tokens. They are invalid as soon
+// as the session JWT they reference is replaced or cleared, and never outlive that session.
 
-type TokenPurpose = 'session' | 'totp-pending';
+type TokenPurpose = 'session' | 'totp-pending' | 'csrf';
 
 interface FixTrackJwtPayload extends JwtPayload {
   purpose: TokenPurpose;
+  // A CSRF token is bound to the unique JWT id of one authenticated session.
+  sessionId?: string;
 }
 
 function getJwtSecret(): string {
@@ -96,10 +100,15 @@ function clearCookie(response: ServerResponse, name: string, path = '/'): void {
   appendSetCookie(response, serializeCookie(name, '', { maxAgeSeconds: 0, path }));
 }
 
-function signToken(userId: string, purpose: TokenPurpose, expiresInSeconds: number): string {
+function signToken(
+  userId: string,
+  purpose: TokenPurpose,
+  expiresInSeconds: number,
+  sessionId?: string
+): string {
   // JWTs contain only the user id and token purpose; user profile data stays out of the token.
   return jwt.sign(
-    { purpose },
+    { purpose, ...(sessionId ? { sessionId } : {}) },
     getJwtSecret(),
     {
       algorithm: 'HS256',
@@ -140,6 +149,26 @@ function withoutPrivateFields(user: User): User {
   return safeUser;
 }
 
+async function getAuthenticatedSession(request: IncomingMessage): Promise<{ user: User; payload: FixTrackJwtPayload }> {
+  const cookies = getCookieMap(request);
+  const payload = verifyToken(cookies[sessionCookieName], 'session');
+  // Fetch the user on every check so deactivated accounts cannot use an old JWT.
+  const user = await userRepository.findById(payload.sub!);
+
+  if (!user || user.status !== 'Active') {
+    throw new HttpError(401, 'Authentication session is no longer valid');
+  }
+
+  return { user: withoutPrivateFields(user), payload };
+}
+
+function tokensMatch(left: string, right: string): boolean {
+  // Avoid a value-dependent early exit when comparing the session binding values.
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
 export const sessionService = {
   issueSession(response: ServerResponse, userId: string): void {
     const lifetimeSeconds = getSessionLifetimeSeconds();
@@ -178,22 +207,71 @@ export const sessionService = {
   },
 
   async getAuthenticatedUser(request: IncomingMessage): Promise<User> {
-    const cookies = getCookieMap(request);
-    const payload = verifyToken(cookies[sessionCookieName], 'session');
-    // Fetch the user on every check so deactivated accounts cannot use an old JWT.
-    const user = await userRepository.findById(payload.sub!);
+    return (await getAuthenticatedSession(request)).user;
+  },
 
-    if (!user || user.status !== 'Active') {
-      throw new HttpError(401, 'Authentication session is no longer valid');
+  async createCsrfToken(request: IncomingMessage): Promise<string> {
+    const { payload } = await getAuthenticatedSession(request);
+    if (!payload.jti) {
+      // Every session is created with a jti. Failing closed protects older malformed tokens.
+      throw new HttpError(401, 'Authentication session is invalid');
     }
 
-    return withoutPrivateFields(user);
+    // The token is returned only over an authenticated, no-store response and held in memory
+    // by the frontend. Keeping it out of a cookie avoids cross-subdomain cookie-read issues.
+    return signToken(payload.sub!, 'csrf', getSessionLifetimeSeconds(), payload.jti);
+  },
+
+  async assertCsrfToken(request: IncomingMessage): Promise<void> {
+    // Authenticate first. An attacker cannot turn a missing token into an account probe.
+    const { payload: sessionPayload } = await getAuthenticatedSession(request);
+    const header = request.headers['x-csrf-token'];
+    const csrfToken = Array.isArray(header) ? undefined : header;
+    if (!csrfToken) {
+      throw new HttpError(403, 'CSRF token is required');
+    }
+
+    let csrfPayload: FixTrackJwtPayload;
+    try {
+      csrfPayload = verifyToken(csrfToken, 'csrf');
+    } catch (error) {
+      // A CSRF failure is deliberately a 403, not an authentication error.
+      if (error instanceof HttpError) {
+        throw new HttpError(403, 'CSRF token is invalid');
+      }
+      throw error;
+    }
+
+    if (
+      !sessionPayload.jti ||
+      !csrfPayload.sessionId ||
+      csrfPayload.sub !== sessionPayload.sub ||
+      !tokensMatch(csrfPayload.sessionId, sessionPayload.jti)
+    ) {
+      throw new HttpError(403, 'CSRF token is invalid');
+    }
   },
 
   assertPendingTotpUser(request: IncomingMessage, userId: string): void {
     // The second-factor code is accepted only for the user who completed password/OAuth step one.
     const cookies = getCookieMap(request);
-    const payload = verifyToken(cookies[pendingTotpCookieName], 'totp-pending');
+    const pendingToken = cookies[pendingTotpCookieName];
+    if (!pendingToken) {
+      // The short-lived challenge cookie is intentionally required; a TOTP code alone must
+      // never complete a login after a browser restart, expiry, or direct URL visit.
+      throw new HttpError(401, 'Two-factor login session expired. Please sign in again.');
+    }
+
+    let payload: FixTrackJwtPayload;
+    try {
+      payload = verifyToken(pendingToken, 'totp-pending');
+    } catch (error) {
+      if (error instanceof HttpError) {
+        throw new HttpError(401, 'Two-factor login session expired. Please sign in again.');
+      }
+      throw error;
+    }
+
     if (payload.sub !== userId) {
       throw new HttpError(403, 'This two-factor challenge does not match the login attempt');
     }

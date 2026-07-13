@@ -13,6 +13,7 @@ import type { CreateUserDto } from '../dtos/user.dto.js';
 import { HttpError } from '../errors/http-error.js';
 import { assertRateLimit } from '../middlewares/rate-limit.middleware.js';
 import { assertTrustedOrigin } from '../middlewares/origin.middleware.js';
+import { assertCsrfProtection } from '../middlewares/csrf.middleware.js';
 import { sessionService } from '../services/session.service.js';
 import {
   complaintIdValidationSchema,
@@ -46,6 +47,8 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
     // Cookie-authenticated writes must originate from a configured frontend origin.
     assertTrustedOrigin(request);
     assertRateLimit(request, url.pathname);
+    // Require a signed, session-bound token before dispatching any authenticated write route.
+    await assertCsrfProtection(request, url.pathname);
 
     if (request.method === 'GET' && url.pathname === '/api/health') {
       applicationController.health(response);
@@ -102,6 +105,12 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
     // Reload the authenticated user from the verified HttpOnly session cookie.
     if (request.method === 'GET' && url.pathname === '/api/auth/me') {
       await authController.currentUser(request, response);
+      return;
+    }
+
+    // A CSRF token is fetched only after the HttpOnly session has been verified.
+    if (request.method === 'GET' && url.pathname === '/api/auth/csrf') {
+      await authController.csrfToken(request, response);
       return;
     }
 

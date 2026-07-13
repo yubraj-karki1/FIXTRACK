@@ -22,6 +22,7 @@ export function applyCors(request: IncomingMessage, response: ServerResponse): v
     response.setHeader('Vary', 'Origin');
   }
 
-  response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
-  response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  // Browsers must be allowed to send the custom header from an explicitly trusted frontend.
+  response.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-CSRF-Token');
 }
