@@ -75,6 +75,9 @@ export const userService = {
     // Return existing user if found
     const existing = await userRepository.findByEmail(email);
     if (existing) {
+      if (existing.status !== 'Active') {
+        throw new HttpError(403, 'This account is inactive');
+      }
       return withoutPrivateFields(existing);
     }
 

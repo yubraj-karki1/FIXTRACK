@@ -15,11 +15,13 @@ function getClient(): OAuth2Client {
 }
 
 export const googleAuthService = {
-  getAuthUrl(): string {
+  getAuthUrl(state: string): string {
     return getClient().generateAuthUrl({
       access_type: 'offline',
       prompt: 'select_account',
-      scope: scopes
+      scope: scopes,
+      // OAuth state binds the callback to the browser that started the login.
+      state
     });
   },
 
@@ -34,13 +36,15 @@ export const googleAuthService = {
       throw new HttpError(400, 'Google did not return an identity token');
     }
 
+    // Verify Google's signature and ensure the token was issued for this OAuth client.
     const ticket = await client.verifyIdToken({
       idToken: tokens.id_token,
       audience: config.googleClientId
     });
     const payload = ticket.getPayload();
-    if (!payload?.email) {
-      throw new HttpError(400, 'Google account did not provide an email address');
+    // Do not create/link a local account from an unverified email address.
+    if (!payload?.email || payload.email_verified !== true) {
+      throw new HttpError(400, 'Google account did not provide a verified email address');
     }
 
     return userService.findOrCreateGoogleUser({

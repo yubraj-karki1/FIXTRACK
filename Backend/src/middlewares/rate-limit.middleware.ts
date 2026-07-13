@@ -15,13 +15,15 @@ const minute = 60 * 1000;
 const rateLimitBuckets = new Map<string, RateLimitBucket>();
 
 const sensitiveRouteLimits: Record<string, RateLimitRule> = {
+  // Login, registration, and TOTP checks are deliberately stricter than read-only endpoints.
   'POST /api/auth/login': { maxRequests: 10, windowMs: 15 * minute },
   'POST /api/users': { maxRequests: 5, windowMs: 15 * minute },
   'POST /api/auth/forgot-password': { maxRequests: 5, windowMs: 15 * minute },
   'POST /api/auth/forgot-password/verify': { maxRequests: 8, windowMs: 15 * minute },
   'POST /api/auth/password-reset': { maxRequests: 5, windowMs: 15 * minute },
   'POST /api/auth/email/verify': { maxRequests: 8, windowMs: 15 * minute },
-  'POST /api/auth/otp/verify': { maxRequests: 8, windowMs: 15 * minute }
+  'POST /api/auth/totp/verify-login': { maxRequests: 8, windowMs: 15 * minute },
+  'POST /api/auth/totp/verify-setup': { maxRequests: 8, windowMs: 15 * minute }
 };
 
 function getClientIp(request: IncomingMessage): string {

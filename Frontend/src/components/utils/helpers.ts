@@ -45,7 +45,9 @@ export function isAdminOnlyPath(path?: string | null): boolean {
  * Returns the requested path if allowed for the user's role, otherwise routes to default dashboard
  */
 export function getLoginTarget(requestedNext: string | null, userOrEmail: User | string): string {
-  if (requestedNext && (!isAdminOnlyPath(requestedNext) || isAdminUser(userOrEmail))) {
+  // Reject protocol-relative/external targets supplied through the query string.
+  const isSafeInternalPath = requestedNext?.startsWith('/') && !requestedNext.startsWith('//');
+  if (requestedNext && isSafeInternalPath && (!isAdminOnlyPath(requestedNext) || isAdminUser(userOrEmail))) {
     return requestedNext;
   }
 
@@ -144,43 +146,4 @@ export function isValidPhone(value: string): boolean {
 
 export function isValidRoom(value: string): boolean {
   return /^[A-Za-z0-9\s-]{1,20}$/.test(value);
-}
-
-// ============== TOTP Utilities ==============
-
-/**
- * TOTP (Two-Factor Authentication) local storage utilities
- * Stores and retrieves user IDs for TOTP-enabled accounts to skip QR code on repeat logins
- */
-const totpUsersStorageKey = 'fixtrack:totp-users';
-
-export function getStoredTotpUsers(): Record<string, string> {
-  if (typeof window === 'undefined') return {};
-
-  try {
-    return JSON.parse(window.localStorage.getItem(totpUsersStorageKey) || '{}') as Record<string, string>;
-  } catch {
-    return {};
-  }
-}
-
-export function rememberTotpUser(user: User): void {
-  if (typeof window === 'undefined') return;
-
-  const stored = getStoredTotpUsers();
-  stored[user.email.toLowerCase()] = user.id;
-  window.localStorage.setItem(totpUsersStorageKey, JSON.stringify(stored));
-}
-
-export function forgetTotpUser(user: User): void {
-  if (typeof window === 'undefined') return;
-
-  const stored = getStoredTotpUsers();
-  delete stored[user.email.toLowerCase()];
-  window.localStorage.setItem(totpUsersStorageKey, JSON.stringify(stored));
-}
-
-export function getRememberedTotpUserId(email: string, matchedUser?: User): string | undefined {
-  const stored = getStoredTotpUsers();
-  return stored[email.toLowerCase()] || (matchedUser?.totpEnabled ? matchedUser.id : undefined);
 }

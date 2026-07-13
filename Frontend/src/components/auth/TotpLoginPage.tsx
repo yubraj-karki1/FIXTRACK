@@ -10,27 +10,31 @@ import { useFixTrack } from '@/context/FixTrackContext';
 import { api } from '@/lib/api';
 import { Input } from '../shared/UIComponents';
 import { AuthShell } from '../shared/UIComponents';
-import { getLoginTarget, rememberTotpUser } from '../utils/helpers';
+import { getLoginTarget } from '../utils/helpers';
 
 export function TotpLoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { notify, setCurrentUser } = useFixTrack();
+  const { notify, refreshAuth } = useFixTrack();
   const [token, setToken] = useState('');
   const [error, setError] = useState('');
   const userId = searchParams.get('userId') || '';
-  const next = searchParams.get('next') || '/student';
+  const next = searchParams.get('next');
 
   const verify = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
 
     try {
-      const user = await api.verifyTotpLogin(userId, token);
-      setCurrentUser({ ...user, photo: '' });
-      rememberTotpUser({ ...user, totpEnabled: true });
+      // Successful verification upgrades the short-lived pre-auth cookie to a full session.
+      await api.verifyTotpLogin(userId, token);
+      const user = await refreshAuth();
+      if (!user) {
+        throw new Error('Two-factor verification succeeded, but the session could not be refreshed.');
+      }
       notify('Two-factor authentication verified.');
-      router.push(getLoginTarget(next, user));
+      router.replace(getLoginTarget(next, user));
+      router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Invalid authenticator code.');
     }

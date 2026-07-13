@@ -10,19 +10,19 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useFixTrack } from '@/context/FixTrackContext';
 import { users } from '@/data/fixtrack-data';
 import { api } from '@/lib/api';
-import type { User } from '@/types';
 import { Input } from '../shared/UIComponents';
 import { AuthShell } from '../shared/UIComponents';
-import { getLoginTarget, rememberTotpUser } from '../utils/helpers';
+import { getLoginTarget } from '../utils/helpers';
 
 export function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { notify, setCurrentUser } = useFixTrack();
+  const { notify, refreshAuth } = useFixTrack();
   const [error, setError] = useState('');
   const googleLoginEnabled = process.env.NEXT_PUBLIC_ENABLE_GOOGLE_LOGIN === 'true';
 
   useEffect(() => {
+    // Google never returns user data in the URL; /auth/me reads the secure cookie instead.
     const googleError = searchParams.get('googleError');
     if (googleError) {
       if (googleError.includes('Google login')) {
@@ -34,19 +34,20 @@ export function LoginPage() {
       return;
     }
 
-    const googleUser = searchParams.get('googleUser');
-    if (!googleUser) return;
+    if (searchParams.get('googleLogin') !== 'success') return;
 
-    try {
-      const normalized = googleUser.replace(/-/g, '+').replace(/_/g, '/');
-      const user = JSON.parse(window.atob(normalized)) as User;
-      setCurrentUser({ ...user, photo: '' });
+    void (async () => {
+      const user = await refreshAuth();
+      if (!user) {
+        setError('Unable to finish Google login.');
+        return;
+      }
+
       notify('Logged in with Google.');
       router.replace(getLoginTarget(searchParams.get('next'), user));
-    } catch {
-      setError('Unable to finish Google login.');
-    }
-  }, [notify, router, searchParams, setCurrentUser]);
+      router.refresh();
+    })();
+  }, [notify, refreshAuth, router, searchParams]);
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -63,18 +64,21 @@ export function LoginPage() {
       const target = getLoginTarget(requestedNext, loginUser);
 
       if (login.requiresTotp && login.userId) {
-        if (matchedUser) rememberTotpUser({ ...matchedUser, id: login.userId, totpEnabled: true });
+        // The final session remains unavailable until the authenticator code is verified.
         notify('Enter your authenticator code to finish login.');
         router.push(`/totp?userId=${login.userId}&next=${encodeURIComponent(target)}`);
         return;
       }
 
-      if (login.user) {
-        setCurrentUser({ ...login.user, photo: matchedUser?.photo || '' });
+      // Re-read the backend session instead of trusting profile data from the login response.
+      const authenticatedUser = await refreshAuth();
+      if (!authenticatedUser) {
+        throw new Error('Login succeeded, but the authentication session could not be refreshed.');
       }
 
       notify('Logged in successfully.');
-      router.push(target);
+      router.replace(getLoginTarget(requestedNext, authenticatedUser));
+      router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to log in.');
     }
@@ -96,7 +100,7 @@ export function LoginPage() {
           Login
         </button>
         {googleLoginEnabled && (
-          <a className="button button-secondary full" href="/api/auth/google">
+          <a className="button button-secondary full" href={api.googleLoginUrl}>
             Continue with Google
           </a>
         )}

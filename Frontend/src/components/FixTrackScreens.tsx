@@ -57,7 +57,7 @@ import {
 } from 'recharts';
 import { useFixTrack } from '@/context/FixTrackContext';
 import { aggregate, initials, makeStatusStats } from '@/data/helpers';
-import { buildings, categories, defaultCurrentUser, priorities, statuses, users } from '@/data/fixtrack-data';
+import { buildings, categories, priorities, statuses, users } from '@/data/fixtrack-data';
 import { api } from '@/lib/api';
 import type {
   ChartDatum,
@@ -111,7 +111,9 @@ function isAdminOnlyPath(path?: string | null): boolean {
 }
 
 function getLoginTarget(requestedNext: string | null, userOrEmail: User | string): string {
-  if (requestedNext && (!isAdminOnlyPath(requestedNext) || isAdminUser(userOrEmail))) {
+  // Only allow local application paths; never turn a login `next` value into an open redirect.
+  const isSafeInternalPath = requestedNext?.startsWith('/') && !requestedNext.startsWith('//');
+  if (requestedNext && isSafeInternalPath && (!isAdminOnlyPath(requestedNext) || isAdminUser(userOrEmail))) {
     return requestedNext;
   }
 
@@ -190,42 +192,6 @@ function isValidPhone(value: string): boolean {
 
 function isValidRoom(value: string): boolean {
   return /^[A-Za-z0-9\s-]{1,20}$/.test(value);
-}
-
-//TOTP (Two-Factor Authentication) local storage utilities
-//Stores and retrieves user IDs for TOTP-enabled accounts to skip QR code on repeat logins
-
-const totpUsersStorageKey = 'fixtrack:totp-users';
-
-function getStoredTotpUsers(): Record<string, string> {
-  if (typeof window === 'undefined') return {};
-
-  try {
-    return JSON.parse(window.localStorage.getItem(totpUsersStorageKey) || '{}') as Record<string, string>;
-  } catch {
-    return {};
-  }
-}
-
-function rememberTotpUser(user: User): void {
-  if (typeof window === 'undefined') return;
-
-  const stored = getStoredTotpUsers();
-  stored[user.email.toLowerCase()] = user.id;
-  window.localStorage.setItem(totpUsersStorageKey, JSON.stringify(stored));
-}
-
-function forgetTotpUser(user: User): void {
-  if (typeof window === 'undefined') return;
-
-  const stored = getStoredTotpUsers();
-  delete stored[user.email.toLowerCase()];
-  window.localStorage.setItem(totpUsersStorageKey, JSON.stringify(stored));
-}
-
-function getRememberedTotpUserId(email: string, matchedUser?: User): string | undefined {
-  const stored = getStoredTotpUsers();
-  return stored[email.toLowerCase()] || (matchedUser?.totpEnabled ? matchedUser.id : undefined);
 }
 
 interface StatItem {
@@ -356,11 +322,12 @@ function AuthShell({ title, subtitle, children }: PropsWithChildren<{ title: str
 export function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { notify, setCurrentUser } = useFixTrack();
+  const { notify, refreshAuth } = useFixTrack();
   const [error, setError] = useState('');
   const googleLoginEnabled = process.env.NEXT_PUBLIC_ENABLE_GOOGLE_LOGIN === 'true';
 
   useEffect(() => {
+    // Google returns only a success marker. The verified cookie is resolved through refreshAuth.
     const googleError = searchParams.get('googleError');
     if (googleError) {
       if (googleError.includes('Google login')) {
@@ -372,19 +339,21 @@ export function LoginPage() {
       return;
     }
 
-    const googleUser = searchParams.get('googleUser');
-    if (!googleUser) return;
+    if (searchParams.get('googleLogin') !== 'success') return;
 
-    try {
-      const normalized = googleUser.replace(/-/g, '+').replace(/_/g, '/');
-      const user = JSON.parse(window.atob(normalized)) as User;
-      setCurrentUser({ ...user, photo: '' });
+    // Google sets the same HttpOnly session cookie; /auth/me is the trusted identity source.
+    void (async () => {
+      const user = await refreshAuth();
+      if (!user) {
+        setError('Unable to finish Google login.');
+        return;
+      }
+
       notify('Logged in with Google.');
       router.replace(getLoginTarget(searchParams.get('next'), user));
-    } catch {
-      setError('Unable to finish Google login.');
-    }
-  }, [notify, router, searchParams, setCurrentUser]);
+      router.refresh();
+    })();
+  }, [notify, refreshAuth, router, searchParams]);
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -401,18 +370,21 @@ export function LoginPage() {
       const target = getLoginTarget(requestedNext, loginUser);
 
       if (login.requiresTotp && login.userId) {
-        if (matchedUser) rememberTotpUser({ ...matchedUser, id: login.userId, totpEnabled: true });
+        // No full JWT exists yet; the backend has issued a five-minute TOTP challenge cookie.
         notify('Enter your authenticator code to finish login.');
         router.push(`/totp?userId=${login.userId}&next=${encodeURIComponent(target)}`);
         return;
       }
 
-      if (login.user) {
-        setCurrentUser({ ...login.user, photo: matchedUser?.photo || '' });
+      // The login response is preserved, but session state is refreshed from the cookie.
+      const authenticatedUser = await refreshAuth();
+      if (!authenticatedUser) {
+        throw new Error('Login succeeded, but the authentication session could not be refreshed.');
       }
 
       notify('Logged in successfully.');
-      router.push(target);
+      router.replace(getLoginTarget(requestedNext, authenticatedUser));
+      router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to log in.');
     }
@@ -433,7 +405,7 @@ export function LoginPage() {
           Login
         </button>
         {googleLoginEnabled && (
-          <a className="button button-secondary full" href="/api/auth/google">
+          <a className="button button-secondary full" href={api.googleLoginUrl}>
             Continue with Google
           </a>
         )}
@@ -451,22 +423,26 @@ export function LoginPage() {
 export function TotpLoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { notify, setCurrentUser } = useFixTrack();
+  const { notify, refreshAuth } = useFixTrack();
   const [token, setToken] = useState('');
   const [error, setError] = useState('');
   const userId = searchParams.get('userId') || '';
-  const next = searchParams.get('next') || '/student';
+  const next = searchParams.get('next');
 
   const verify = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
 
     try {
-      const user = await api.verifyTotpLogin(userId, token);
-      setCurrentUser({ ...user, photo: '' });
-      rememberTotpUser({ ...user, totpEnabled: true });
+      // This endpoint replaces the challenge cookie with the final HttpOnly session cookie.
+      await api.verifyTotpLogin(userId, token);
+      const user = await refreshAuth();
+      if (!user) {
+        throw new Error('Two-factor verification succeeded, but the session could not be refreshed.');
+      }
       notify('Two-factor authentication verified.');
-      router.push(getLoginTarget(next, user));
+      router.replace(getLoginTarget(next, user));
+      router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Invalid authenticator code.');
     }
@@ -494,7 +470,7 @@ export function TotpLoginPage() {
 
 export function RegisterPage() {
   const router = useRouter();
-  const { notify, setCurrentUser } = useFixTrack();
+  const { notify, refreshAuth } = useFixTrack();
   const [error, setError] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -516,7 +492,8 @@ export function RegisterPage() {
       return;
     }
     try {
-      const user = await api.register({
+      // Registration keeps the previous auto-login experience, now backed by a real session cookie.
+      await api.register({
         name: String(data.get('full-name') || 'New Student'),
         studentId: String(data.get('student-id') || ''),
         email: emailAddress,
@@ -526,9 +503,14 @@ export function RegisterPage() {
         room: String(data.get('room-number') || '')
       });
 
-      setCurrentUser({ ...user, photo: '' });
+      // Registration now creates the same server session as login.
+      const user = await refreshAuth();
+      if (!user) {
+        throw new Error('Account created, but the authentication session could not be refreshed.');
+      }
       notify('Account created successfully.');
-      router.push('/student');
+      router.replace(getLoginTarget(null, user));
+      router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to create account.');
     }
@@ -586,7 +568,7 @@ export function DashboardLayout({ children }: PropsWithChildren) {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
-  const { currentUser, setCurrentUser, notify } = useFixTrack();
+  const { currentUser, authStatus, logout, notify } = useFixTrack();
   const isAdmin = isAdminUser(currentUser);
   const nav: Array<[string, string, LucideIcon, boolean?]> = [
     ['Student', '/student', LayoutDashboard],
@@ -600,12 +582,31 @@ export function DashboardLayout({ children }: PropsWithChildren) {
   ];
   const visibleNav = nav.filter(([, , , adminOnly]) => !adminOnly || isAdmin);
 
-  const confirmLogout = () => {
+  useEffect(() => {
+    // Client-side protection avoids rendering dashboard content during an unauthenticated visit.
+    if (authStatus === 'unauthenticated') {
+      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+    }
+  }, [authStatus, pathname, router]);
+
+  const confirmLogout = async () => {
     setShowLogoutConfirm(false);
-    setCurrentUser(defaultCurrentUser);
-    notify('Logged out successfully.');
-    router.push('/login');
+    try {
+      // The server expires HttpOnly cookies; JavaScript cannot clear them directly.
+      await logout();
+      notify('Logged out successfully.');
+      router.replace('/login');
+      router.refresh();
+    } catch (caught) {
+      notify(caught instanceof Error ? caught.message : 'Unable to log out.');
+    }
   };
+
+  // Do not render protected content until /auth/me has verified the cookie.
+  if (authStatus !== 'authenticated') {
+    return <main className="auth-page"><p>Checking authentication...</p></main>;
+  }
+
   return (
     <div className="dashboard-shell">
       <aside className={`sidebar ${open ? 'open' : ''}`}>
@@ -1129,7 +1130,6 @@ export function ProfilePage() {
     try {
       const user = await api.verifyTotpSetup(currentUser.id, totpToken);
       setCurrentUser({ ...currentUser, ...user, photo: currentUser.photo });
-      rememberTotpUser({ ...currentUser, ...user, totpEnabled: true });
       setTotpSetup(null);
       setTotpToken('');
       notify('Two-factor authentication enabled.');
@@ -1144,7 +1144,6 @@ export function ProfilePage() {
     try {
       const user = await api.disableTotp(currentUser.id);
       setCurrentUser({ ...currentUser, ...user, photo: currentUser.photo });
-      forgetTotpUser(currentUser);
       setTotpSetup(null);
       setTotpToken('');
       notify('Two-factor authentication disabled.');

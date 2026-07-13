@@ -11,12 +11,12 @@ import { buildings } from '@/data/fixtrack-data';
 import { api } from '@/lib/api';
 import { Input, Select } from '../shared/UIComponents';
 import { AuthShell } from '../shared/UIComponents';
-import { getPasswordErrors } from '../utils/helpers';
+import { getLoginTarget, getPasswordErrors } from '../utils/helpers';
 import { PasswordStrengthFeedback } from './PasswordStrengthFeedback';
 
 export function RegisterPage() {
   const router = useRouter();
-  const { notify, setCurrentUser } = useFixTrack();
+  const { notify, refreshAuth } = useFixTrack();
   const [error, setError] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -41,7 +41,8 @@ export function RegisterPage() {
     }
 
     try {
-      const user = await api.register({
+      // The backend creates the account and writes a secure session cookie in one response.
+      await api.register({
         name: String(data.get('full-name') || 'New Student'),
         studentId: String(data.get('student-id') || ''),
         email: emailAddress,
@@ -51,9 +52,14 @@ export function RegisterPage() {
         room: String(data.get('room-number') || '')
       });
 
-      setCurrentUser({ ...user, photo: '' });
+      // Load the safe server-side user record before entering the protected dashboard.
+      const user = await refreshAuth();
+      if (!user) {
+        throw new Error('Account created, but the authentication session could not be refreshed.');
+      }
       notify('Account created successfully.');
-      router.push('/student');
+      router.replace(getLoginTarget(null, user));
+      router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to create account.');
     }

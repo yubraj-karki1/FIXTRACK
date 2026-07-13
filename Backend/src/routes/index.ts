@@ -2,6 +2,7 @@
 // API Route Handler
 // Defines all API endpoints with request validation, rate limiting, and error handling
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { config } from '../config/index.js';
 import { applicationController } from '../controller/application.controller.js';
 import { authController } from '../controller/auth.controller.js';
 import { complaintController } from '../controller/complaint.controller.js';
@@ -11,6 +12,8 @@ import type { LoginRequestDto, TotpSetupRequestDto, TotpVerifyRequestDto } from 
 import type { CreateUserDto } from '../dtos/user.dto.js';
 import { HttpError } from '../errors/http-error.js';
 import { assertRateLimit } from '../middlewares/rate-limit.middleware.js';
+import { assertTrustedOrigin } from '../middlewares/origin.middleware.js';
+import { sessionService } from '../services/session.service.js';
 import {
   complaintIdValidationSchema,
   loginValidationSchema,
@@ -28,6 +31,11 @@ import { readJsonBody } from './body.js';
 export async function handleRoutes(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`);
 
+  if (url.pathname.startsWith('/api/auth/')) {
+    // Authentication responses can contain session-changing Set-Cookie headers.
+    response.setHeader('Cache-Control', 'no-store');
+  }
+
   try {
     if (request.method === 'OPTIONS') {
       response.writeHead(204);
@@ -35,6 +43,8 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
       return;
     }
 
+    // Cookie-authenticated writes must originate from a configured frontend origin.
+    assertTrustedOrigin(request);
     assertRateLimit(request, url.pathname);
 
     if (request.method === 'GET' && url.pathname === '/api/health') {
@@ -43,6 +53,11 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
     }
 
     if (request.method === 'GET' && url.pathname === '/api/users') {
+      // User directory data is administrative information, not a public endpoint.
+      const authenticatedUser = await sessionService.getAuthenticatedUser(request);
+      if (authenticatedUser.role !== 'Administrator') {
+        throw new HttpError(403, 'Administrator access required');
+      }
       await validateRequest({ query: Object.fromEntries(url.searchParams) }, searchValidationSchema, 'query');
       await userController.list(response);
       return;
@@ -75,40 +90,59 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
 
     // Google OAuth callback with auth code
     if (request.method === 'GET' && url.pathname === '/api/auth/google/callback') {
-      await authController.googleCallback(response, url.searchParams.get('code') || '');
+      await authController.googleCallback(
+        request,
+        response,
+        url.searchParams.get('code') || '',
+        url.searchParams.get('state') || ''
+      );
+      return;
+    }
+
+    // Reload the authenticated user from the verified HttpOnly session cookie.
+    if (request.method === 'GET' && url.pathname === '/api/auth/me') {
+      await authController.currentUser(request, response);
+      return;
+    }
+
+    // Logout is idempotent and succeeds even if the session is already expired.
+    if (request.method === 'POST' && url.pathname === '/api/auth/logout') {
+      authController.logout(response);
       return;
     }
 
     // Begin two-factor authentication setup
     if (request.method === 'POST' && url.pathname === '/api/auth/totp/setup') {
       const body = await readJsonBody<TotpSetupRequestDto>(request);
-      await authController.setupTotp(response, body.userId);
+      await authController.setupTotp(request, response, body.userId);
       return;
     }
 
     // Verify TOTP token and enable 2FA
     if (request.method === 'POST' && url.pathname === '/api/auth/totp/verify-setup') {
       const body = await readJsonBody<TotpVerifyRequestDto>(request);
-      await authController.verifyTotpSetup(response, body.userId, body.token);
+      await authController.verifyTotpSetup(request, response, body.userId, body.token);
       return;
     }
 
     // Verify TOTP token during login
     if (request.method === 'POST' && url.pathname === '/api/auth/totp/verify-login') {
       const body = await readJsonBody<TotpVerifyRequestDto>(request);
-      await authController.verifyTotpLogin(response, body.userId, body.token);
+      await authController.verifyTotpLogin(request, response, body.userId, body.token);
       return;
     }
 
     //Disable two-factor authentication
     if (request.method === 'POST' && url.pathname === '/api/auth/totp/disable') {
       const body = await readJsonBody<TotpSetupRequestDto>(request);
-      await authController.disableTotp(response, body.userId);
+      await authController.disableTotp(request, response, body.userId);
       return;
     }
 
     // Retrieve all complaints
     if (request.method === 'GET' && url.pathname === '/api/complaints') {
+      // The session check prevents unauthenticated API access even if a UI route is guessed.
+      await sessionService.getAuthenticatedUser(request);
       await validateRequest({ query: Object.fromEntries(url.searchParams) }, searchValidationSchema, 'query');
       await complaintController.list(response);
       return;
@@ -117,6 +151,8 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
     // Retrieve single complaint by ID
     const complaintMatch = url.pathname.match(/^\/api\/complaints\/([^/]+)$/);
     if (request.method === 'GET' && complaintMatch) {
+      // Apply the same server-side authentication requirement to complaint detail views.
+      await sessionService.getAuthenticatedUser(request);
       const params = await validateRequest<{ id: string }>({ params: { id: complaintMatch[1] } }, complaintIdValidationSchema, 'params');
       await complaintController.detail(response, params.id);
       return;
@@ -126,7 +162,7 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
   } catch (error) {
     if (error instanceof HttpError) {
       if (request.method === 'GET' && url.pathname.startsWith('/api/auth/google')) {
-        const redirectUrl = new URL('http://localhost:3000/login');
+        const redirectUrl = new URL(config.googleSuccessRedirect);
         redirectUrl.searchParams.set('googleError', error.message);
         response.writeHead(302, { Location: redirectUrl.toString() });
         response.end();
