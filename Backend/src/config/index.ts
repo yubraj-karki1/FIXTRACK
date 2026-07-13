@@ -27,6 +27,13 @@ export const config = {
   serviceName: process.env.SERVICE_NAME || 'FixTrack backend',
   // Credentialed cookie requests cannot safely use a wildcard CORS origin.
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  // Trust forwarding headers only when a known reverse proxy strips client-supplied values.
+  trustProxy: process.env.TRUST_PROXY === 'true',
+  // Production redirects accidental HTTP requests unless TLS is already terminated by a trusted proxy.
+  requireHttps: process.env.NODE_ENV === 'production' && process.env.REQUIRE_HTTPS !== 'false',
+  // Optional direct TLS support for deployments that do not terminate HTTPS at a reverse proxy.
+  httpsKeyPath: process.env.HTTPS_KEY_PATH || '',
+  httpsCertPath: process.env.HTTPS_CERT_PATH || '',
   mongodbUri: process.env.MONGODB_URI || '',
   mongodbDatabase: process.env.MONGODB_DATABASE || 'fixtrack',
   // Production must provide a strong secret. The fallback only keeps local development convenient.
@@ -51,4 +58,26 @@ if (config.isProduction && Buffer.byteLength(config.jwtSecret, 'utf8') < 32) {
 
 if (config.isProduction && config.corsOrigin.split(',').some((origin) => origin.trim() === '*')) {
   throw new Error('CORS_ORIGIN cannot contain * when credential cookies are enabled');
+}
+
+const corsOrigins = config.corsOrigin.split(',').map((origin) => origin.trim()).filter(Boolean);
+const hasOnlyHttpsCorsOrigins = corsOrigins.every((origin) => {
+  try {
+    return new URL(origin).protocol === 'https:';
+  } catch {
+    return false;
+  }
+});
+
+const hasDirectHttps = Boolean(config.httpsKeyPath && config.httpsCertPath);
+if (Boolean(config.httpsKeyPath) !== Boolean(config.httpsCertPath)) {
+  throw new Error('HTTPS_KEY_PATH and HTTPS_CERT_PATH must be configured together');
+}
+
+if (config.isProduction && (!hasOnlyHttpsCorsOrigins || !config.googleCallbackUrl.startsWith('https://') || !config.googleSuccessRedirect.startsWith('https://'))) {
+  throw new Error('Production CORS and Google redirect URLs must use HTTPS');
+}
+
+if (config.requireHttps && !config.trustProxy && !hasDirectHttps) {
+  throw new Error('Production HTTPS requires TRUST_PROXY=true or HTTPS_KEY_PATH and HTTPS_CERT_PATH');
 }
