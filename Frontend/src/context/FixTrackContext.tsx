@@ -12,6 +12,7 @@ export function FixTrackProvider({ children }: PropsWithChildren) {
   const pathname = usePathname();
   const [complaints, setComplaints] = useState<Complaint[]>(initialComplaints);
   const [currentUser, setCurrentUser] = useState<User>(defaultCurrentUser);
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
   // Keep a separate status so demo data never implies the visitor is authenticated.
   const [authStatus, setAuthStatus] = useState<'loading' | 'authenticated' | 'unauthenticated'>('loading');
   const [toast, setToast] = useState('');
@@ -21,6 +22,14 @@ export function FixTrackProvider({ children }: PropsWithChildren) {
   const notify = useCallback((message: string) => {
     setToast(message);
     window.setTimeout(() => setToast(''), 2800);
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((current) => {
+      const nextTheme = current === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('fixtrack-theme', nextTheme);
+      return nextTheme;
+    });
   }, []);
 
   const refreshAuth = useCallback(async (): Promise<User | null> => {
@@ -62,6 +71,18 @@ export function FixTrackProvider({ children }: PropsWithChildren) {
   }, []);
 
   useEffect(() => {
+    const savedTheme = localStorage.getItem('fixtrack-theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    setTheme(savedTheme === 'dark' || savedTheme === 'light' ? savedTheme : prefersDark ? 'dark' : 'light');
+  }, []);
+
+  useEffect(() => {
+    // The theme preference is UI-only. Authentication tokens stay in HttpOnly cookies.
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+  }, [theme]);
+
+  useEffect(() => {
     if (pathname === '/totp') {
       // This route has only a five-minute pre-authentication cookie, not a full session.
       // Do not make an unnecessary /auth/me request while the user enters their code.
@@ -74,8 +95,19 @@ export function FixTrackProvider({ children }: PropsWithChildren) {
   }, [pathname, refreshAuth]);
 
   const value = useMemo<FixTrackContextValue>(
-    () => ({ complaints, setComplaints, currentUser, setCurrentUser, authStatus, refreshAuth, logout, notify }),
-    [authStatus, complaints, currentUser, logout, notify, refreshAuth]
+    () => ({
+      complaints,
+      setComplaints,
+      currentUser,
+      setCurrentUser,
+      theme,
+      toggleTheme,
+      authStatus,
+      refreshAuth,
+      logout,
+      notify
+    }),
+    [authStatus, complaints, currentUser, logout, notify, refreshAuth, theme, toggleTheme]
   );
 
   return (

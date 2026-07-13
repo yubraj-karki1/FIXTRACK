@@ -8,7 +8,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Menu, X, Bell, LogOut, LayoutDashboard, ClipboardCheck, BriefcaseBusiness, Plus, UserCog, Archive, Users, Settings, Search, Wrench } from 'lucide-react';
+import { Menu, X, Bell, LogOut, LayoutDashboard, ClipboardCheck, BriefcaseBusiness, Plus, UserCog, Archive, Users, Settings, Search, Wrench, Moon, Sun } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useFixTrack } from '@/context/FixTrackContext';
 import { initials } from '@/data/helpers';
@@ -20,7 +20,7 @@ export function DashboardLayout({ children }: PropsWithChildren) {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
-  const { currentUser, authStatus, logout, notify } = useFixTrack();
+  const { currentUser, authStatus, logout, notify, theme, toggleTheme } = useFixTrack();
   const isAdmin = isAdminUser(currentUser);
 
   const nav: Array<[string, string, LucideIcon, boolean?]> = [
@@ -89,6 +89,9 @@ export function DashboardLayout({ children }: PropsWithChildren) {
             <input aria-label="Global search" placeholder="Search complaints, rooms, staff..." />
           </div>
           <div className="topbar-actions">
+            <button className="icon-button" type="button" onClick={toggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
+              {theme === 'dark' ? <Sun /> : <Moon />}
+            </button>
             <Bell />
             <span className="avatar">{initials(currentUser.name)}</span>
             <button className="button button-secondary logout-button" type="button" onClick={() => setShowLogoutConfirm(true)}>
