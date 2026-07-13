@@ -1,23 +1,30 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { defaultCurrentUser, initialComplaints } from '@/data/fixtrack-data';
 import { api } from '@/lib/api';
 import type { Complaint, FixTrackContextValue, User } from '@/types';
 
 const FixTrackContext = createContext<FixTrackContextValue | null>(null);
+const inactivityLogoutMs = 15 * 60 * 1000;
+const inactivityWarningMs = 14 * 60 * 1000;
+const activityEvents = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'focus'] as const;
 
 export function FixTrackProvider({ children }: PropsWithChildren) {
   const pathname = usePathname();
+  const router = useRouter();
   const [complaints, setComplaints] = useState<Complaint[]>(initialComplaints);
   const [currentUser, setCurrentUser] = useState<User>(defaultCurrentUser);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   // Keep a separate status so demo data never implies the visitor is authenticated.
   const [authStatus, setAuthStatus] = useState<'loading' | 'authenticated' | 'unauthenticated'>('loading');
   const [toast, setToast] = useState('');
+  const [inactivityWarningVisible, setInactivityWarningVisible] = useState(false);
   // Prevent a slower, older /auth/me request from overwriting a newer login result.
   const refreshRequestId = useRef(0);
+  const warningTimerRef = useRef<number | null>(null);
+  const logoutTimerRef = useRef<number | null>(null);
 
   const notify = useCallback((message: string) => {
     setToast(message);
@@ -66,9 +73,56 @@ export function FixTrackProvider({ children }: PropsWithChildren) {
     // Invalidate in-flight refreshes before clearing the authoritative server cookie.
     refreshRequestId.current += 1;
     await api.logout();
+    setInactivityWarningVisible(false);
     setCurrentUser(defaultCurrentUser);
     setAuthStatus('unauthenticated');
   }, []);
+
+  const clearInactivityTimers = useCallback(() => {
+    if (warningTimerRef.current) {
+      window.clearTimeout(warningTimerRef.current);
+      warningTimerRef.current = null;
+    }
+
+    if (logoutTimerRef.current) {
+      window.clearTimeout(logoutTimerRef.current);
+      logoutTimerRef.current = null;
+    }
+  }, []);
+
+  const autoLogout = useCallback(async () => {
+    clearInactivityTimers();
+    refreshRequestId.current += 1;
+
+    try {
+      // Use the normal logout endpoint so HttpOnly session cookies are expired by the backend.
+      await api.logout();
+      notify('You were logged out after 15 minutes of inactivity.');
+    } catch {
+      // If the network is unavailable, clear local auth state so protected UI is not left visible.
+      api.clearCsrfToken();
+      notify('Session ended after inactivity. Please log in again.');
+    } finally {
+      setInactivityWarningVisible(false);
+      setCurrentUser(defaultCurrentUser);
+      setAuthStatus('unauthenticated');
+      router.replace('/login');
+      router.refresh();
+    }
+  }, [clearInactivityTimers, notify, router]);
+
+  const restartInactivityTimers = useCallback(() => {
+    clearInactivityTimers();
+    setInactivityWarningVisible(false);
+
+    warningTimerRef.current = window.setTimeout(() => {
+      setInactivityWarningVisible(true);
+    }, inactivityWarningMs);
+
+    logoutTimerRef.current = window.setTimeout(() => {
+      void autoLogout();
+    }, inactivityLogoutMs);
+  }, [autoLogout, clearInactivityTimers]);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('fixtrack-theme');
@@ -94,6 +148,27 @@ export function FixTrackProvider({ children }: PropsWithChildren) {
     void refreshAuth();
   }, [pathname, refreshAuth]);
 
+  useEffect(() => {
+    if (authStatus !== 'authenticated') {
+      clearInactivityTimers();
+      setInactivityWarningVisible(false);
+      return;
+    }
+
+    // Any real user activity continues the session and starts a fresh 15-minute window.
+    restartInactivityTimers();
+    activityEvents.forEach((eventName) => {
+      window.addEventListener(eventName, restartInactivityTimers, { passive: true });
+    });
+
+    return () => {
+      activityEvents.forEach((eventName) => {
+        window.removeEventListener(eventName, restartInactivityTimers);
+      });
+      clearInactivityTimers();
+    };
+  }, [authStatus, clearInactivityTimers, restartInactivityTimers]);
+
   const value = useMemo<FixTrackContextValue>(
     () => ({
       complaints,
@@ -102,12 +177,13 @@ export function FixTrackProvider({ children }: PropsWithChildren) {
       setCurrentUser,
       theme,
       toggleTheme,
+      inactivityWarningVisible,
       authStatus,
       refreshAuth,
       logout,
       notify
     }),
-    [authStatus, complaints, currentUser, logout, notify, refreshAuth, theme, toggleTheme]
+    [authStatus, complaints, currentUser, inactivityWarningVisible, logout, notify, refreshAuth, theme, toggleTheme]
   );
 
   return (
@@ -116,6 +192,11 @@ export function FixTrackProvider({ children }: PropsWithChildren) {
       {toast && (
         <div className="toast" role="status">
           {toast}
+        </div>
+      )}
+      {inactivityWarningVisible && authStatus === 'authenticated' && (
+        <div className="session-warning" role="alert">
+          You will be logged out in 1 minute due to inactivity. Move your mouse, press a key, or tap the page to stay signed in.
         </div>
       )}
     </FixTrackContext.Provider>

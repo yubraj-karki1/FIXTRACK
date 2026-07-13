@@ -83,6 +83,7 @@ export interface FixTrackContextValue extends ToastApi {
   setCurrentUser: Dispatch<SetStateAction<User>>;
   theme: 'light' | 'dark';
   toggleTheme: () => void;
+  inactivityWarningVisible: boolean;
   // Session state is derived from the server-verified HttpOnly cookie, not local storage.
   authStatus: 'loading' | 'authenticated' | 'unauthenticated';
   refreshAuth: () => Promise<User | null>;

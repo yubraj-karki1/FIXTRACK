@@ -1149,6 +1149,28 @@ td a {
   font-weight: 800;
 }
 
+.session-warning {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  z-index: 60;
+  width: min(620px, calc(100vw - 44px));
+  transform: translateX(-50%);
+  padding: 14px 16px;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  border-radius: var(--radius);
+  background: #fffbeb;
+  color: #92400e;
+  box-shadow: var(--shadow);
+  font-weight: 800;
+  text-align: center;
+}
+
+:root[data-theme='dark'] .session-warning {
+  background: rgba(251, 191, 36, 0.16);
+  color: #fde68a;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
