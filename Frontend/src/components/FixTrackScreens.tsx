@@ -86,13 +86,13 @@ const iconCategories: IconCategory[] = categories.map((category) => ({
 }));
 
 
-//Determines the appropriate dashboard path based on user role
+// Determines the default landing page after login. Admin access is still allowed,
+// but admins should not be forced into the admin dashboard on every login.
 
 function getDashboardPath(userOrEmail: User | string): string {
   const role = typeof userOrEmail === 'string' ? '' : userOrEmail.role;
   const email = (typeof userOrEmail === 'string' ? userOrEmail : userOrEmail.email).toLowerCase();
 
-  if (isAdminUser(userOrEmail)) return '/admin';
   if (role === 'Maintenance Staff' || email.includes('staff') || email.includes('maintenance') 
     || email.includes('ramesh') || email.includes('mina')) return '/staff';
   return '/student';
