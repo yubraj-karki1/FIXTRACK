@@ -328,7 +328,6 @@ function AuthShell({ title, subtitle, children }: PropsWithChildren<{ title: str
     </main>
   );
 }
-
 export function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -393,7 +392,6 @@ export function LoginPage() {
       setError(caught instanceof Error ? caught.message : 'Unable to log in.');
     }
   };
-
   return (
     <AuthShell title="Welcome back" subtitle="Log in to continue tracking hostel maintenance requests.">
       <form className="form" onSubmit={handleLogin}>
@@ -421,7 +419,6 @@ export function LoginPage() {
     </AuthShell>
   );
 }
-
 export function TotpLoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -445,7 +442,6 @@ export function TotpLoginPage() {
       setError(caught instanceof Error ? caught.message : 'Invalid authenticator code.');
     }
   };
-
   return (
     <AuthShell title="Two-factor verification" subtitle="Enter the 6-digit code from your authenticator app.">
       <form className="form" onSubmit={verify}>
@@ -462,14 +458,12 @@ export function TotpLoginPage() {
     </AuthShell>
   );
 }
-
 export function RegisterPage() {
   const router = useRouter();
   const { notify, setCurrentUser } = useFixTrack();
   const [error, setError] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-
   const handleRegister = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
@@ -483,12 +477,10 @@ export function RegisterPage() {
       setError(`Password requirements missing: ${passwordErrors.join(', ')}.`);
       return;
     }
-
     if (password !== confirmPassword) {
       setError('Passwords do not match.');
       return;
     }
-
     try {
       const user = await api.register({
         name: String(data.get('full-name') || 'New Student'),
