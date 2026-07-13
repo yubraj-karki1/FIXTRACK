@@ -1,8 +1,6 @@
-/**
- * Student Account Registration Page
- * Collects student details (name, ID, email, phone, building, room) and creates new account
- * Validates password strength and shows real-time feedback
- */
+//Student Account Registration Page
+//Collects student details (name, ID, email, phone, building, room) and creates new account
+//Validates password strength and shows real-time feedback
 
 'use client';
 

@@ -1,8 +1,7 @@
-/**
- * Login Page Component
- * Email/password authentication with Google login option and TOTP support
- * Handles redirects based on user role and requested destination
- */
+// Login Page Component
+// Email/password authentication with Google login option and TOTP support
+// Handles redirects based on user role and requested destination
+ 
 
 'use client';
 

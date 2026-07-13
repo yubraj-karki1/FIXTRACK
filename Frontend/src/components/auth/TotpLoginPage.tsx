@@ -1,7 +1,6 @@
-/**
- * TOTP (Two-Factor Authentication) Login Page
- * Allows users with TOTP enabled to enter their 6-digit authenticator code
- */
+// TOTP (Two-Factor Authentication) Login Page
+// Allows users with TOTP enabled to enter their 6-digit authenticator code
+
 
 'use client';
 

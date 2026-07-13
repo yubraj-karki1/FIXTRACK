@@ -1,7 +1,7 @@
-/**
- * Landing Page Component
- * Public homepage showing FixTrack features and login/register options
- */
+
+//'Landing Page Component
+//Public homepage showing FixTrack features and login/register options
+ 
 
 'use client';
 

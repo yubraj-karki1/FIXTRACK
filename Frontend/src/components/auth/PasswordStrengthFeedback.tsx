@@ -1,7 +1,6 @@
-/**
- * Password Strength Feedback Component
- * Shows visual feedback on password requirements met/unmet
- */
+// Password Strength Feedback Component
+// Shows visual feedback on password requirements met/unmet
+
 
 import { getPasswordRules, getPasswordStrengthLabel } from '../utils/helpers';
 

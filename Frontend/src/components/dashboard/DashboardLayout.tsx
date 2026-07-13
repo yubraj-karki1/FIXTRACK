@@ -1,8 +1,7 @@
-/**
- * Dashboard Layout Wrapper
- * Main dashboard layout providing navigation, top bar, and logout confirmation
- * Shown to all authenticated users with role-based menu visibility
- */
+//Dashboard Layout Wrapper
+//Main dashboard layout providing navigation, top bar, and logout confirmation
+//Shown to all authenticated users with role-based menu visibility
+
 
 'use client';
 

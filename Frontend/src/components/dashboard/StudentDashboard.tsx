@@ -1,8 +1,6 @@
-/**
- * Student Dashboard Page
- * Shows welcome message, complaint statistics, and recent complaints
- * Displays category shortcuts for quick navigation
- */
+// Student Dashboard Page
+// Shows welcome message, complaint statistics, and recent complaints
+// Displays category shortcuts for quick navigation
 
 'use client';
 
