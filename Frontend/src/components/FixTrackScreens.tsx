@@ -507,7 +507,6 @@ export function RegisterPage() {
       setError(caught instanceof Error ? caught.message : 'Unable to create account.');
     }
   };
-
   return (
     <AuthShell title="Create student account" subtitle="Register your hostel details to report and track maintenance issues.">
       <form className="form two-col" onSubmit={handleRegister}>
@@ -531,7 +530,6 @@ export function RegisterPage() {
     </AuthShell>
   );
 }
-
 function PasswordStrengthFeedback({ password, email }: { password: string; email: string }) {
   const rules = getPasswordRules(password, email);
   const score = rules.filter((rule) => rule.met).length;
@@ -556,7 +554,6 @@ function PasswordStrengthFeedback({ password, email }: { password: string; email
     </div>
   );
 }
-
 export function DashboardLayout({ children }: PropsWithChildren) {
   const [open, setOpen] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -582,7 +579,6 @@ export function DashboardLayout({ children }: PropsWithChildren) {
     notify('Logged out successfully.');
     router.push('/login');
   };
-
   return (
     <div className="dashboard-shell">
       <aside className={`sidebar ${open ? 'open' : ''}`}>
@@ -640,7 +636,6 @@ export function DashboardLayout({ children }: PropsWithChildren) {
     </div>
   );
 }
-
 function AdminOnlyGate({
   title,
   description,
@@ -670,7 +665,6 @@ function AdminOnlyGate({
 
   return <>{children}</>;
 }
-
 export function StudentDashboardPage() {
   const { complaints, currentUser } = useFixTrack();
   const mine = complaints.filter((complaint) => complaint.student === currentUser.name);
@@ -706,7 +700,6 @@ export function StudentDashboardPage() {
     </>
   );
 }
-
 export function CreateComplaintPage() {
   const router = useRouter();
   const { complaints, setComplaints, notify, currentUser } = useFixTrack();
@@ -743,7 +736,6 @@ export function CreateComplaintPage() {
     notify('Complaint submitted successfully.');
     router.push('/complaints');
   };
-
   return (
     <AdminOnlyGate title="Add panel" description="Create maintenance complaints from the administrator workspace.">
       <PageHeader title="Create complaint" description="Add the details maintenance staff need to inspect and resolve the issue." />
