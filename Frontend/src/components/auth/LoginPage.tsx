@@ -5,7 +5,7 @@
 
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useFixTrack } from '@/context/FixTrackContext';
 import { api } from '@/lib/api';
@@ -18,10 +18,12 @@ export function LoginPage() {
   const searchParams = useSearchParams();
   const { notify, refreshAuth } = useFixTrack();
   const [error, setError] = useState('');
-  const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const formRef = useRef<HTMLFormElement | null>(null);
+  async function submitForm(form?: HTMLFormElement | null) {
     setError('');
-    const data = new FormData(event.currentTarget);
+    const f = form ?? formRef.current;
+    if (!f) return;
+    const data = new FormData(f);
     const email = String(data.get('email-address') || '').toLowerCase();
     const password = String(data.get('password') || '');
     const requestedNext = searchParams.get('next');
@@ -32,13 +34,11 @@ export function LoginPage() {
       const target = getLoginTarget(requestedNext, loginUser);
 
       if (login.requiresTotp && login.userId) {
-        // The final session remains unavailable until the authenticator code is verified.
         notify('Enter your authenticator code to finish login.');
         router.push(`/totp?userId=${login.userId}&next=${encodeURIComponent(target)}`);
         return;
       }
 
-      // Re-read the backend session instead of trusting profile data from the login response.
       const authenticatedUser = await refreshAuth();
       if (!authenticatedUser) {
         throw new Error('Login succeeded, but the authentication session could not be refreshed.');
@@ -50,13 +50,18 @@ export function LoginPage() {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to log in.');
     }
+  }
+
+  const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await submitForm(event.currentTarget as HTMLFormElement);
   };
 
   return (
     <AuthShell title="Welcome back" subtitle="Log in to continue tracking hostel maintenance requests.">
-      <form className="form" onSubmit={handleLogin}>
+      <form className="form" ref={formRef} onSubmit={handleLogin}>
         {error && <p className="validation">{error}</p>}
-        <Input label="Email address" type="email" placeholder="student@hostel.edu" required />
+        <Input name="email-address" label="Email address" type="email" placeholder="student@hostel.edu" required />
         <Input label="Password" type="password" name="password" placeholder="Enter your password" required />
         <div className="form-row compact">
           <label className="check">
@@ -64,7 +69,11 @@ export function LoginPage() {
           </label>
           <span className="muted">Contact an administrator if you cannot access your account.</span>
         </div>
-        <button className="button button-primary full" type="submit">
+        <button
+          className="button button-primary full"
+          type="button"
+          onClick={async () => await submitForm()}
+        >
           Login
         </button>
         <p className="form-help">

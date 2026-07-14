@@ -4,7 +4,7 @@
 
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useFixTrack } from '@/context/FixTrackContext';
 import { buildings } from '@/data/fixtrack-data';
@@ -20,6 +20,7 @@ export function RegisterPage() {
   const [error, setError] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const formRef = useRef<HTMLFormElement | null>(null);
 
   const handleRegister = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -67,30 +68,39 @@ export function RegisterPage() {
 
   return (
     <AuthShell title="Create student account" subtitle="Register your hostel details to report and track maintenance issues.">
-      <form className="form two-col" onSubmit={handleRegister}>
+      <form className="form two-col" ref={formRef} onSubmit={handleRegister}>
         {error && <p className="validation span-2">{error}</p>}
-        <Input label="Full name" required />
-        <Input label="Student ID" placeholder="STU-2026-014" required />
+        <Input name="full-name" label="Full name" required />
+        <Input name="student-id" label="Student ID" placeholder="STU-2026-014" required />
         <Input
+          name="email-address"
           label="Email address"
           type="email"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           required
         />
-        <Input label="Phone number" required />
-        <Select label="Hostel building" options={buildings.slice(0, 4)} />
-        <Input label="Room number" required />
+        <Input name="phone-number" label="Phone number" required />
+        <Select name="hostel-building" label="Hostel building" options={buildings.slice(0, 4)} />
+        <Input name="room-number" label="Room number" required />
         <Input
+          name="password"
           label="Password"
           type="password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           required
         />
-        <Input label="Confirm password" type="password" required />
+        <Input name="confirm-password" label="Confirm password" type="password" required />
         <PasswordStrengthFeedback password={password} email={email} />
-        <button className="button button-primary full span-2" type="submit">
+        <button
+          className="button button-primary full span-2"
+          type="button"
+          onClick={async () => {
+            if (!formRef.current) return;
+            await handleRegister({ currentTarget: formRef.current, preventDefault: () => {} } as unknown as FormEvent<HTMLFormElement>);
+          }}
+        >
           Register
         </button>
         <p className="form-help span-2">
