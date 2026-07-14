@@ -8,18 +8,25 @@ import { complaintController } from '../controller/complaint.controller.js';
 import { sendJson } from '../controller/response.js';
 import { userController } from '../controller/user.controller.js';
 import type { LoginRequestDto, TotpSetupRequestDto, TotpVerifyRequestDto } from '../dtos/auth.dto.js';
-import type { CreatePrivilegedUserDto, CreateUserDto } from '../dtos/user.dto.js';
+import type { CreateComplaintDto, UpdateComplaintDto } from '../dtos/complaint.dto.js';
+import type { AdminUpdateUserDto, CreatePrivilegedUserDto, CreateUserDto, UpdateProfileDto } from '../dtos/user.dto.js';
 import { HttpError } from '../errors/http-error.js';
 import { assertRateLimit } from '../middlewares/rate-limit.middleware.js';
 import { assertTrustedOrigin } from '../middlewares/origin.middleware.js';
 import { assertCsrfProtection } from '../middlewares/csrf.middleware.js';
+import { requireAuthenticatedUser, requireRole } from '../middlewares/auth.middleware.js';
 import { sessionService } from '../services/session.service.js';
 import {
   complaintIdValidationSchema,
+  adminUpdateUserValidationSchema,
+  createComplaintValidationSchema,
   loginValidationSchema,
   privilegedUserValidationSchema,
   registerValidationSchema,
   searchValidationSchema,
+  updateComplaintValidationSchema,
+  updateProfileValidationSchema,
+  userIdValidationSchema,
   validateRequest
 } from '../middlewares/validation.middleware.js';
 import { readJsonBody } from './body.js';
@@ -68,16 +75,25 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
     // Create a staff or administrator account through an authenticated admin-only boundary.
     // CSRF protection above has already required a valid session for this unsafe request.
     if (request.method === 'POST' && url.pathname === '/api/admin/users') {
-      const authenticatedUser = await sessionService.getAuthenticatedUser(request);
-      if (authenticatedUser.role !== 'Administrator') {
-        throw new HttpError(403, 'Administrator access required');
-      }
+      await requireRole(request, 'Administrator');
 
       const body = await validateRequest<CreatePrivilegedUserDto>(
         { body: await readJsonBody<Record<string, unknown>>(request) },
         privilegedUserValidationSchema
       );
       await userController.createPrivileged(response, body);
+      return;
+    }
+
+    const adminUserMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
+    if (request.method === 'PATCH' && adminUserMatch) {
+      const administrator = await requireRole(request, 'Administrator');
+      const params = await validateRequest<{ id: string }>({ params: { id: adminUserMatch[1] } }, userIdValidationSchema, 'params');
+      const body = await validateRequest<AdminUpdateUserDto>(
+        { body: await readJsonBody<Record<string, unknown>>(request) },
+        adminUpdateUserValidationSchema
+      );
+      await userController.adminUpdate(response, administrator.id, params.id, body);
       return;
     }
 
@@ -113,6 +129,16 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
       return;
     }
 
+    if (request.method === 'PATCH' && url.pathname === '/api/auth/profile') {
+      const authenticatedUser = await requireAuthenticatedUser(request);
+      const body = await validateRequest<UpdateProfileDto>(
+        { body: await readJsonBody<Record<string, unknown>>(request) },
+        updateProfileValidationSchema
+      );
+      await userController.updateProfile(response, authenticatedUser.id, body);
+      return;
+    }
+
     // Logout is idempotent and succeeds even if the session is already expired.
     if (request.method === 'POST' && url.pathname === '/api/auth/logout') {
       authController.logout(response);
@@ -142,27 +168,46 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
 
     //Disable two-factor authentication
     if (request.method === 'POST' && url.pathname === '/api/auth/totp/disable') {
-      const body = await readJsonBody<TotpSetupRequestDto>(request);
-      await authController.disableTotp(request, response, body.userId);
+      const body = await readJsonBody<TotpVerifyRequestDto>(request);
+      await authController.disableTotp(request, response, body.userId, body.token);
       return;
     }
 
     // Retrieve all complaints
     if (request.method === 'GET' && url.pathname === '/api/complaints') {
-      // The session check prevents unauthenticated API access even if a UI route is guessed.
-      await sessionService.getAuthenticatedUser(request);
+      const authenticatedUser = await requireAuthenticatedUser(request);
       await validateRequest({ query: Object.fromEntries(url.searchParams) }, searchValidationSchema, 'query');
-      await complaintController.list(response);
+      await complaintController.list(response, authenticatedUser);
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/complaints') {
+      const authenticatedUser = await requireAuthenticatedUser(request);
+      const body = await validateRequest<CreateComplaintDto>(
+        { body: await readJsonBody<Record<string, unknown>>(request) },
+        createComplaintValidationSchema
+      );
+      await complaintController.create(response, body, authenticatedUser);
       return;
     }
 
     // Retrieve single complaint by ID
     const complaintMatch = url.pathname.match(/^\/api\/complaints\/([^/]+)$/);
     if (request.method === 'GET' && complaintMatch) {
-      // Apply the same server-side authentication requirement to complaint detail views.
-      await sessionService.getAuthenticatedUser(request);
+      const authenticatedUser = await requireAuthenticatedUser(request);
       const params = await validateRequest<{ id: string }>({ params: { id: complaintMatch[1] } }, complaintIdValidationSchema, 'params');
-      await complaintController.detail(response, params.id);
+      await complaintController.detail(response, params.id, authenticatedUser);
+      return;
+    }
+
+    if (request.method === 'PATCH' && complaintMatch) {
+      const authenticatedUser = await requireAuthenticatedUser(request);
+      const params = await validateRequest<{ id: string }>({ params: { id: complaintMatch[1] } }, complaintIdValidationSchema, 'params');
+      const body = await validateRequest<UpdateComplaintDto>(
+        { body: await readJsonBody<Record<string, unknown>>(request) },
+        updateComplaintValidationSchema
+      );
+      await complaintController.update(response, params.id, body, authenticatedUser);
       return;
     }
     

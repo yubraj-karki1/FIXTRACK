@@ -3,7 +3,7 @@
 //Handles user management endpoints: list all users, create new accounts
 
 import type { ServerResponse } from 'node:http';
-import type { CreatePrivilegedUserDto, CreateUserDto } from '../dtos/user.dto.js';
+import type { AdminUpdateUserDto, CreatePrivilegedUserDto, CreateUserDto, UpdateProfileDto } from '../dtos/user.dto.js';
 import { userService } from '../services/user.service.js';
 import { sessionService } from '../services/session.service.js';
 import { sendJson } from './response.js';
@@ -34,6 +34,22 @@ export const userController = {
     sendJson<User>(response, 201, {
       data: user,
       message: 'Privileged account created successfully'
+    });
+  },
+
+  async updateProfile(response: ServerResponse, userId: string, body: UpdateProfileDto): Promise<void> {
+    response.setHeader('Cache-Control', 'no-store');
+    sendJson<User>(response, 200, {
+      data: await userService.updateProfile(userId, body),
+      message: 'Profile updated successfully'
+    });
+  },
+
+  async adminUpdate(response: ServerResponse, actorId: string, userId: string, body: AdminUpdateUserDto): Promise<void> {
+    response.setHeader('Cache-Control', 'no-store');
+    sendJson<User>(response, 200, {
+      data: await userService.adminUpdateUser(actorId, userId, body),
+      message: 'User updated successfully'
     });
   }
 };

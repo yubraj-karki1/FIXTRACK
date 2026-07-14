@@ -25,6 +25,7 @@ export const config = {
   isProduction: process.env.NODE_ENV === 'production',
   port: Number(process.env.PORT || 4000),
   serviceName: process.env.SERVICE_NAME || 'FixTrack backend',
+  publicOrigin: process.env.PUBLIC_ORIGIN || 'http://localhost:4000',
   // Credentialed cookie requests cannot safely use a wildcard CORS origin.
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:3000',
   // Trust forwarding headers only when a known reverse proxy strips client-supplied values.
@@ -36,6 +37,7 @@ export const config = {
   httpsCertPath: process.env.HTTPS_CERT_PATH || '',
   mongodbUri: process.env.MONGODB_URI || '',
   mongodbDatabase: process.env.MONGODB_DATABASE || 'fixtrack',
+  seedDemoData: process.env.NODE_ENV !== 'production' && process.env.SEED_DEMO_DATA !== 'false',
   // Production must provide a strong secret. The fallback only keeps local development convenient.
   jwtSecret:
     process.env.JWT_SECRET ||
@@ -44,12 +46,27 @@ export const config = {
   jwtIssuer: process.env.JWT_ISSUER || 'fixtrack-api',
   jwtAudience: process.env.JWT_AUDIENCE || 'fixtrack-web',
   // Sessions expire after eight hours by default, limiting the lifetime of a stolen cookie.
-  jwtExpiresInSeconds: Number(process.env.JWT_EXPIRES_IN_SECONDS || 8 * 60 * 60)
+  jwtExpiresInSeconds: Number(process.env.JWT_EXPIRES_IN_SECONDS || 8 * 60 * 60),
+  totpEncryptionKey:
+    process.env.TOTP_ENCRYPTION_KEY ||
+    (process.env.NODE_ENV === 'production' ? '' : 'fixtrack-development-totp-key-change-before-production')
 };
 
 // Production starts only with deliberate, non-wildcard authentication settings.
 if (config.isProduction && Buffer.byteLength(config.jwtSecret, 'utf8') < 32) {
   throw new Error('JWT_SECRET must contain at least 32 characters in production');
+}
+
+if (config.isProduction && Buffer.byteLength(config.totpEncryptionKey, 'utf8') < 32) {
+  throw new Error('TOTP_ENCRYPTION_KEY must contain at least 32 characters in production');
+}
+
+if (config.isProduction && new URL(config.publicOrigin).protocol !== 'https:') {
+  throw new Error('PUBLIC_ORIGIN must use HTTPS in production');
+}
+
+if (config.isProduction && !config.mongodbUri) {
+  throw new Error('MONGODB_URI is required in production');
 }
 
 if (config.isProduction && config.corsOrigin.split(',').some((origin) => origin.trim() === '*')) {

@@ -1,4 +1,5 @@
-import { database, mongo } from '../database/index.js';
+import type { UpdateFilter } from 'mongodb';
+import { database, mongo, saveComplaints } from '../database/index.js';
 import type { Complaint } from '../types/index.js';
 
 export const complaintRepository = {
@@ -17,5 +18,30 @@ export const complaintRepository = {
     }
 
     return database.complaints.find((complaint) => complaint.id === id);
+  },
+
+  async create(complaint: Complaint): Promise<Complaint> {
+    if (mongo.isConnected) {
+      await mongo.complaints().insertOne(complaint);
+      return complaint;
+    }
+
+    database.complaints.push(complaint);
+    saveComplaints();
+    return complaint;
+  },
+
+  async update(id: string, updates: Partial<Complaint>): Promise<Complaint | undefined> {
+    if (mongo.isConnected) {
+      const update: UpdateFilter<Complaint> = { $set: updates };
+      await mongo.complaints().updateOne({ id }, update);
+      return this.findById(id);
+    }
+
+    const complaint = database.complaints.find((item) => item.id === id);
+    if (!complaint) return undefined;
+    Object.assign(complaint, updates);
+    saveComplaints();
+    return complaint;
   }
 };

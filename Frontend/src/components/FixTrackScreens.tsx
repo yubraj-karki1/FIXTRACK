@@ -12,10 +12,8 @@ import {
   AlertTriangle,
   Archive,
   Bath,
-  Bell,
   Bolt,
   BriefcaseBusiness,
-  Camera,
   CheckCircle2,
   ChevronRight,
   ClipboardCheck,
@@ -23,8 +21,6 @@ import {
   DoorOpen,
   Droplets,
   FileText,
-  Filter,
-  ImagePlus,
   LayoutDashboard,
   LogIn,
   LogOut,
@@ -59,7 +55,7 @@ import {
 } from 'recharts';
 import { useFixTrack } from '@/context/FixTrackContext';
 import { aggregate, initials, makeStatusStats } from '@/data/helpers';
-import { buildings, categories, priorities, statuses, users } from '@/data/fixtrack-data';
+import { buildings, categories, priorities, statuses } from '@/data/fixtrack-data';
 import { api } from '@/lib/api';
 import type {
   ChartDatum,
@@ -93,23 +89,19 @@ const iconCategories: IconCategory[] = categories.map((category) => ({
 
 function getDashboardPath(userOrEmail: User | string): string {
   const role = typeof userOrEmail === 'string' ? '' : userOrEmail.role;
-  const email = (typeof userOrEmail === 'string' ? userOrEmail : userOrEmail.email).toLowerCase();
 
-  if (role === 'Maintenance Staff' || email.includes('staff') || email.includes('maintenance') 
-    || email.includes('ramesh') || email.includes('mina')) return '/staff';
+  if (role === 'Maintenance Staff') return '/staff';
   return '/student';
 }
  
 function isAdminUser(userOrEmail?: User | string): boolean {
   if (!userOrEmail) return false;
 
-  const role = typeof userOrEmail === 'string' ? '' : userOrEmail.role;
-  const email = (typeof userOrEmail === 'string' ? userOrEmail : userOrEmail.email).toLowerCase();
-  return role === 'Administrator' || email.includes('admin');
+  return typeof userOrEmail !== 'string' && userOrEmail.role === 'Administrator';
 }
 
 function isAdminOnlyPath(path?: string | null): boolean {
-  return !!path && (path === '/complaints/new' || path === '/admin' || path.startsWith('/admin/'));
+  return !!path && (path === '/admin' || path.startsWith('/admin/'));
 }
 
 function getLoginTarget(requestedNext: string | null, userOrEmail: User | string): string {
@@ -279,7 +271,7 @@ export function LandingPage() {
       <section className="feature-grid">
         <FeatureCard icon={FileText} title="Fast reporting" text="Students can submit detailed complaints with category, room, priority, and description." />
         <FeatureCard icon={Activity} title="Live status updates" text="Clear badges and timelines show every step from pending to closed." />
-        <FeatureCard icon={Camera} title="Image evidence" text="Photo upload previews help staff inspect the problem before visiting the room." />
+        <FeatureCard icon={FileText} title="Detailed reports" text="Structured repair details help staff understand the problem before visiting the room." />
         <FeatureCard icon={Users} title="Staff management" text="Admins can assign work, monitor load, and filter repairs by role or building." />
       </section>
       <footer className="footer">
@@ -336,8 +328,7 @@ export function LoginPage() {
 
     try {
       const login = await api.login(email, password);
-      const matchedUser = users.find((user) => user.email.toLowerCase() === email);
-      const loginUser = login.user || matchedUser || email;
+      const loginUser = login.user || email;
       const target = getLoginTarget(requestedNext, loginUser);
 
       if (login.requiresTotp && login.userId) {
@@ -370,7 +361,7 @@ export function LoginPage() {
           <label className="check">
             <input type="checkbox" /> Remember me
           </label>
-          <Link href="/login">Forgot password?</Link>
+          <span className="muted">Contact an administrator if you cannot access your account.</span>
         </div>
         <button className="button button-primary full" type="submit">
           Login
@@ -540,13 +531,17 @@ export function DashboardLayout({ children }: PropsWithChildren) {
     ['Student', '/student', LayoutDashboard],
     ['My Complaints', '/complaints', ClipboardCheck],
     ['Staff', '/staff', BriefcaseBusiness],
-    ['Add Panel', '/complaints/new', Plus, true],
+    ['New Complaint', '/complaints/new', Plus],
     ['Admin', '/admin', UserCog, true],
     ['Manage Reports', '/admin/complaints', Archive, true],
     ['Users', '/admin/users', Users, true],
     ['Profile', '/profile', Settings]
   ];
-  const visibleNav = nav.filter(([, , , adminOnly]) => !adminOnly || isAdmin);
+  const visibleNav = nav.filter(([label, , , adminOnly]) =>
+    (!adminOnly || isAdmin) &&
+    (label !== 'Staff' || currentUser.role === 'Maintenance Staff' || isAdmin) &&
+    (label !== 'New Complaint' || currentUser.role !== 'Maintenance Staff')
+  );
 
   useEffect(() => {
     // Client-side protection avoids rendering dashboard content during an unauthenticated visit.
@@ -597,15 +592,10 @@ export function DashboardLayout({ children }: PropsWithChildren) {
           <button className="icon-button mobile-only" onClick={() => setOpen(true)} aria-label="Open menu">
             <Menu />
           </button>
-          <div className="topbar-search">
-            <Search />
-            <input aria-label="Global search" placeholder="Search complaints, rooms, staff..." />
-          </div>
           <div className="topbar-actions">
             <button className="icon-button" type="button" onClick={toggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
               {theme === 'dark' ? <Sun /> : <Moon />}
             </button>
-            <Bell />
             <span className="avatar">{initials(currentUser.name)}</span>
             <button className="button button-secondary logout-button" type="button" onClick={() => setShowLogoutConfirm(true)}>
               <LogOut /> Logout
@@ -666,7 +656,7 @@ function AdminOnlyGate({
 
 export function StudentDashboardPage() {
   const { complaints, currentUser } = useFixTrack();
-  const mine = complaints.filter((complaint) => complaint.student === currentUser.name);
+  const mine = complaints.filter((complaint) => complaint.studentUserId === currentUser.id);
   const stats = makeStatusStats(mine);
 
   return (
@@ -703,10 +693,9 @@ export function StudentDashboardPage() {
 export function CreateComplaintPage() {
   const router = useRouter();
   const { complaints, setComplaints, notify, currentUser } = useFixTrack();
-  const [preview, setPreview] = useState('');
   const [error, setError] = useState('');
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
 
@@ -715,29 +704,24 @@ export function CreateComplaintPage() {
       return;
     }
 
-    const next: Complaint = {
-      id: `FX-${2400 + complaints.length + 1}`,
-      title: String(data.get('title')),
-      category: data.get('category') as ComplaintCategoryName,
-      priority: data.get('priority') as ComplaintPriority,
-      status: 'Pending',
-      building: String(data.get('building')),
-      room: String(data.get('room')),
-      student: currentUser.name,
-      staff: 'Unassigned',
-      submitted: '2026-07-07',
-      description: String(data.get('description')),
-      image: preview || 'https://images.unsplash.com/photo-1581092795360-fd1ca04f0952?auto=format&fit=crop&w=900&q=80',
-      notes: [],
-      updates: ['Pending']
-    };
-
-    setComplaints([next, ...complaints]);
-    notify('Complaint submitted successfully.');
-    router.push('/complaints');
+    try {
+      const created = await api.createComplaint({
+        title: String(data.get('title')),
+        category: data.get('category') as ComplaintCategoryName,
+        priority: data.get('priority') as ComplaintPriority,
+        building: String(data.get('building')),
+        room: String(data.get('room')),
+        description: String(data.get('description'))
+      });
+      setComplaints([created, ...complaints]);
+      notify('Complaint submitted successfully.');
+      router.push('/complaints');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to submit complaint.');
+    }
   };
   return (
-    <AdminOnlyGate title="Add panel" description="Create maintenance complaints from the administrator workspace.">
+    <>
       <PageHeader title="Create complaint" description="Add the details maintenance staff need to inspect and resolve the issue." />
       <Panel>
         <form className="form complaint-form" onSubmit={submit}>
@@ -751,26 +735,12 @@ export function CreateComplaintPage() {
           <Select label="Building" name="building" options={buildings.slice(0, 4)} defaultValue={currentUser.building} />
           <Input label="Room number" name="room" placeholder={currentUser.room || '204'} defaultValue={currentUser.room} required />
           <PrioritySelector />
-          <label className="upload-area span-2">
-            <ImagePlus />
-            <strong>Upload evidence image</strong>
-            <span>PNG or JPG preview appears here</span>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) setPreview(URL.createObjectURL(file));
-              }}
-            />
-          </label>
-          {preview && <img className="image-preview span-2" src={preview} alt="Selected complaint evidence preview" />}
           <button className="button button-primary span-2" type="submit">
             Submit complaint
           </button>
         </form>
       </Panel>
-    </AdminOnlyGate>
+    </>
   );
 }
 
@@ -780,7 +750,7 @@ export function MyComplaintsPage() {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<ComplaintStatus | 'All'>('All');
   const [category, setCategory] = useState<ComplaintCategoryName | 'All'>('All');
-  const myComplaints = complaints.filter((complaint) => complaint.student === currentUser.name);
+  const myComplaints = complaints.filter((complaint) => complaint.studentUserId === currentUser.id);
   const filtered = myComplaints.filter(
     (complaint) =>
       (status === 'All' || complaint.status === status) &&
@@ -799,24 +769,21 @@ export function MyComplaintsPage() {
 
 
 export function ComplaintDetailPage({ id }: { id: string }) {
-  const { complaints, setComplaints, notify } = useFixTrack();
-  const complaint = complaints.find((item) => item.id === id) || complaints[0];
-  const canEdit = complaint.status === 'Pending';
+  const { complaints, setComplaints, notify, currentUser } = useFixTrack();
+  const complaint = complaints.find((item) => item.id === id);
+  if (!complaint) {
+    return <EmptyState title="Complaint not found" text="This complaint does not exist or you do not have access to it." />;
+  }
+  const canEdit = currentUser.role === 'Student' && complaint.studentUserId === currentUser.id && complaint.status === 'Pending';
 
-  const cancel = () => {
-    setComplaints(
-      complaints.map((item) =>
-        item.id === complaint.id
-          ? {
-              ...item,
-              status: 'Closed',
-              notes: [...item.notes, 'Cancelled by student before assignment.'],
-              updates: [...new Set([...item.updates, 'Closed' as ComplaintStatus])]
-            }
-          : item
-      )
-    );
-    notify('Complaint cancelled.');
+  const cancel = async () => {
+    try {
+      const updated = await api.updateComplaint(complaint.id, { status: 'Closed' });
+      setComplaints(complaints.map((item) => item.id === updated.id ? updated : item));
+      notify('Complaint cancelled.');
+    } catch (caught) {
+      notify(caught instanceof Error ? caught.message : 'Unable to cancel complaint.');
+    }
   };
 
   return (
@@ -851,22 +818,30 @@ export function ComplaintDetailPage({ id }: { id: string }) {
 
 export function StaffDashboardPage() {
   const { complaints, setComplaints, notify } = useFixTrack();
-  const assigned = complaints.filter((complaint) => complaint.staff === 'Ramesh Karki' || complaint.status !== 'Closed');
+  const assigned = complaints.filter((complaint) => complaint.status !== 'Closed');
 
-  const updateStatus = (id: string, status: ComplaintStatus) => {
-    setComplaints(
-      complaints.map((complaint) =>
-        complaint.id === id
-          ? {
-              ...complaint,
-              status,
-              updates: [...new Set([...complaint.updates, status])],
-              notes: [...complaint.notes, `Status updated to ${status} by staff.`]
-            }
-          : complaint
-      )
-    );
-    notify(`Complaint ${id} updated.`);
+  const updateStatus = async (id: string, status: ComplaintStatus) => {
+    try {
+      const updated = await api.updateComplaint(id, { status });
+      setComplaints(complaints.map((complaint) => complaint.id === id ? updated : complaint));
+      notify(`Complaint ${id} updated.`);
+    } catch (caught) {
+      notify(caught instanceof Error ? caught.message : 'Unable to update complaint.');
+    }
+  };
+
+  const addNote = async (event: FormEvent<HTMLFormElement>, id: string) => {
+    event.preventDefault();
+    const note = String(new FormData(event.currentTarget).get('note') || '').trim();
+    if (!note) return;
+    try {
+      const updated = await api.updateComplaint(id, { note });
+      setComplaints(complaints.map((complaint) => complaint.id === id ? updated : complaint));
+      event.currentTarget.reset();
+      notify(`Note added to ${id}.`);
+    } catch (caught) {
+      notify(caught instanceof Error ? caught.message : 'Unable to add note.');
+    }
   };
 
   return (
@@ -881,15 +856,9 @@ export function StaffDashboardPage() {
         ]}
       />
       <Panel title="Assigned complaint list">
-        <div className="filter-row">
-          <Select label="Building" options={['All', ...buildings.slice(0, 4)]} compact />
-          <Select label="Category" options={['All', ...categories.map((category) => category.name)]} compact />
-          <Select label="Priority" options={['All', ...priorities]} compact />
-          <Select label="Status" options={['All', ...statuses]} compact />
-        </div>
         <div className="work-list">
           {assigned.map((complaint) => (
-            <article className="work-card" key={complaint.id}>
+            <form className="work-card" key={complaint.id} onSubmit={(event) => addNote(event, complaint.id)}>
               <div>
                 <Link href={`/complaints/${complaint.id}`}>{complaint.title}</Link>
                 <p>
@@ -898,15 +867,12 @@ export function StaffDashboardPage() {
                 <Badge label={complaint.priority} type="priority" /> <Badge label={complaint.status} />
               </div>
               <div className="quick-actions">
-                <button onClick={() => updateStatus(complaint.id, 'In Progress')}>Start</button>
-                <button onClick={() => updateStatus(complaint.id, 'Resolved')}>Resolve</button>
-                <label className="small-upload">
-                  <Camera /> Completion image
-                  <input type="file" />
-                </label>
+                <button type="button" disabled={complaint.status !== 'Assigned'} onClick={() => updateStatus(complaint.id, 'In Progress')}>Start</button>
+                <button type="button" disabled={complaint.status !== 'In Progress'} onClick={() => updateStatus(complaint.id, 'Resolved')}>Resolve</button>
               </div>
-              <textarea aria-label={`Repair notes for ${complaint.id}`} placeholder="Add repair notes..." rows={2} />
-            </article>
+              <textarea name="note" aria-label={`Repair notes for ${complaint.id}`} placeholder="Add repair notes..." rows={2} />
+              <button className="button button-secondary" type="submit">Add note</button>
+            </form>
           ))}
         </div>
       </Panel>
@@ -917,16 +883,21 @@ export function StaffDashboardPage() {
 
 export function AdminDashboardPage() {
   const { complaints } = useFixTrack();
+  const [userCount, setUserCount] = useState(0);
   const byCategory = aggregate(complaints, 'category');
   const byStatus = aggregate(complaints, 'status');
   const byBuilding = aggregate(complaints, 'building');
+
+  useEffect(() => {
+    void api.getUsers().then((items) => setUserCount(items.length)).catch(() => setUserCount(0));
+  }, []);
 
   return (
     <AdminOnlyGate title="Admin dashboard" description="Only administrators can monitor hostel-wide maintenance, assignments, and users.">
       <PageHeader title="Admin dashboard" description="Monitor hostel-wide maintenance, assignments, activity, and emergency work." />
       <StatsGrid
         stats={[
-          { label: 'Total users', value: users.length, icon: Users },
+          { label: 'Total users', value: userCount, icon: Users },
           { label: 'Total complaints', value: complaints.length, icon: FileText },
           { label: 'Pending complaints', value: complaints.filter((complaint) => complaint.status === 'Pending').length, icon: Clock3, tone: 'pending' },
           { label: 'Emergency complaints', value: complaints.filter((complaint) => complaint.priority === 'Emergency').length, icon: AlertTriangle, tone: 'danger' },
@@ -949,20 +920,29 @@ export function AdminDashboardPage() {
 
 export function AdminComplaintsPage() {
   const { complaints, setComplaints, notify } = useFixTrack();
+  const [staffUsers, setStaffUsers] = useState<User[]>([]);
+  const [query, setQuery] = useState('');
+  const displayedComplaints = complaints.filter((complaint) =>
+    `${complaint.id} ${complaint.title} ${complaint.building} ${complaint.student}`.toLowerCase().includes(query.toLowerCase())
+  );
 
-  const update = (id: string, key: keyof Pick<Complaint, 'priority' | 'status' | 'staff'>, value: string) => {
-    setComplaints(
-      complaints.map((complaint) =>
-        complaint.id === id
-          ? {
-              ...complaint,
-              [key]: value,
-              updates: key === 'status' ? [...new Set([...complaint.updates, value as ComplaintStatus])] : complaint.updates
-            }
-          : complaint
-      )
-    );
-    notify('Complaint updated.');
+  useEffect(() => {
+    void api.getUsers()
+      .then((items) => setStaffUsers(items.filter((user) => user.role === 'Maintenance Staff' && user.status === 'Active')))
+      .catch((caught) => notify(caught instanceof Error ? caught.message : 'Unable to load staff.'));
+  }, [notify]);
+
+  const update = async (
+    id: string,
+    input: { priority?: ComplaintPriority; status?: ComplaintStatus; staffUserId?: string }
+  ) => {
+    try {
+      const updated = await api.updateComplaint(id, input);
+      setComplaints(complaints.map((complaint) => complaint.id === id ? updated : complaint));
+      notify('Complaint updated.');
+    } catch (caught) {
+      notify(caught instanceof Error ? caught.message : 'Unable to update complaint.');
+    }
   };
 
   return (
@@ -972,11 +952,8 @@ export function AdminComplaintsPage() {
         <div className="table-tools">
           <div className="topbar-search">
             <Search />
-            <input placeholder="Search all complaints..." />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search all complaints..." />
           </div>
-          <button className="button button-secondary">
-            <Filter /> Filters
-          </button>
         </div>
         <div className="table-wrap">
           <table>
@@ -984,7 +961,7 @@ export function AdminComplaintsPage() {
               <tr><th>ID</th><th>Title</th><th>Building</th><th>Priority</th><th>Status</th><th>Assign staff</th><th>History</th></tr>
             </thead>
             <tbody>
-              {complaints.map((complaint) => (
+              {displayedComplaints.map((complaint) => (
                 <tr key={complaint.id}>
                   <td>{complaint.id}</td>
                   <td>
@@ -993,18 +970,19 @@ export function AdminComplaintsPage() {
                   </td>
                   <td>{complaint.building}</td>
                   <td>
-                    <select value={complaint.priority} onChange={(event) => update(complaint.id, 'priority', event.target.value)}>
+                    <select value={complaint.priority} onChange={(event) => update(complaint.id, { priority: event.target.value as ComplaintPriority })}>
                       {priorities.map((priority) => <option key={priority}>{priority}</option>)}
                     </select>
                   </td>
                   <td>
-                    <select value={complaint.status} onChange={(event) => update(complaint.id, 'status', event.target.value)}>
+                    <select value={complaint.status} onChange={(event) => update(complaint.id, { status: event.target.value as ComplaintStatus })}>
                       {statuses.map((status) => <option key={status}>{status}</option>)}
                     </select>
                   </td>
                   <td>
-                    <select value={complaint.staff} onChange={(event) => update(complaint.id, 'staff', event.target.value)}>
-                      {['Unassigned', 'Ramesh Karki', 'Mina Gurung'].map((staff) => <option key={staff}>{staff}</option>)}
+                    <select value={complaint.staffUserId || ''} onChange={(event) => update(complaint.id, { staffUserId: event.target.value })}>
+                      <option value="" disabled>Unassigned</option>
+                      {staffUsers.map((staff) => <option key={staff.id} value={staff.id}>{staff.name}</option>)}
                     </select>
                   </td>
                   <td>{complaint.updates.join(' -> ')}</td>
@@ -1022,11 +1000,61 @@ export function AdminComplaintsPage() {
 export function UserManagementPage() {
   const { complaints, notify } = useFixTrack();
   const [query, setQuery] = useState('');
-  const filtered = users.filter((user) => `${user.name} ${user.email} ${user.role}`.toLowerCase().includes(query.toLowerCase()));
+  const [managedUsers, setManagedUsers] = useState<User[]>([]);
+  const filtered = managedUsers.filter((user) => `${user.name} ${user.email} ${user.role}`.toLowerCase().includes(query.toLowerCase()));
+
+  useEffect(() => {
+    void api.getUsers()
+      .then(setManagedUsers)
+      .catch((caught) => notify(caught instanceof Error ? caught.message : 'Unable to load users.'));
+  }, [notify]);
+
+  const updateManagedUser = async (id: string, input: { role?: User['role']; status?: User['status'] }) => {
+    try {
+      const updated = await api.updateUser(id, input);
+      setManagedUsers((items) => items.map((item) => item.id === id ? updated : item));
+      notify('User updated successfully.');
+    } catch (caught) {
+      notify(caught instanceof Error ? caught.message : 'Unable to update user.');
+    }
+  };
+
+  const createPrivilegedUser = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    try {
+      const created = await api.createPrivilegedUser({
+        name: String(data.get('name') || ''),
+        email: String(data.get('email') || ''),
+        password: String(data.get('password') || ''),
+        phone: String(data.get('phone') || ''),
+        role: String(data.get('role')) as 'Maintenance Staff' | 'Administrator',
+        building: String(data.get('building') || ''),
+        room: String(data.get('room') || '')
+      });
+      setManagedUsers((items) => [...items, created]);
+      event.currentTarget.reset();
+      notify('Privileged user created successfully.');
+    } catch (caught) {
+      notify(caught instanceof Error ? caught.message : 'Unable to create user.');
+    }
+  };
 
   return (
     <AdminOnlyGate title="User management" description="Only administrators can manage users, account status, and roles.">
       <PageHeader title="User management" description="Manage students, maintenance staff, administrators, account status, and roles." />
+      <Panel title="Create staff or administrator">
+        <form className="form two-col" onSubmit={createPrivilegedUser}>
+          <Input label="Name" name="name" required />
+          <Input label="Email" name="email" type="email" required />
+          <Input label="Password" name="password" type="password" minLength={8} maxLength={20} required />
+          <Input label="Phone" name="phone" required />
+          <Select label="Role" name="role" options={['Maintenance Staff', 'Administrator']} />
+          <Select label="Building" name="building" options={[...buildings]} />
+          <Input label="Room" name="room" required />
+          <button className="button button-primary span-2" type="submit">Create account</button>
+        </form>
+      </Panel>
       <Panel>
         <div className="table-tools">
           <div className="topbar-search">
@@ -1042,14 +1070,14 @@ export function UserManagementPage() {
               <p>{user.email}</p>
               <Badge label={user.role} />
               <div className="user-controls">
-                <select defaultValue={user.role} aria-label={`Change role for ${user.name}`} onChange={() => notify('Role updated in demo state.')}>
+                <select value={user.role} aria-label={`Change role for ${user.name}`} onChange={(event) => updateManagedUser(user.id, { role: event.target.value as User['role'] })}>
                   <option>Student</option>
                   <option>Maintenance Staff</option>
                   <option>Administrator</option>
                 </select>
-                <button onClick={() => notify('User activation status changed.')}>{user.status === 'Active' ? 'Deactivate' : 'Activate'}</button>
+                <button onClick={() => updateManagedUser(user.id, { status: user.status === 'Active' ? 'Inactive' : 'Active' })}>{user.status === 'Active' ? 'Deactivate' : 'Activate'}</button>
               </div>
-              <small>{complaints.filter((complaint) => complaint.student === user.name || complaint.staff === user.name).length} related complaints</small>
+              <small>{complaints.filter((complaint) => complaint.studentUserId === user.id || complaint.staffUserId === user.id).length} related complaints</small>
             </article>
           ))}
         </div>
@@ -1060,25 +1088,25 @@ export function UserManagementPage() {
 
 export function ProfilePage() {
   const { notify, currentUser, setCurrentUser } = useFixTrack();
-  const [photoPreview, setPhotoPreview] = useState(currentUser.photo || '');
   const [totpSetup, setTotpSetup] = useState<{ qrCodeDataUrl: string; otpauthUrl: string } | null>(null);
   const [totpToken, setTotpToken] = useState('');
   const [totpError, setTotpError] = useState('');
 
-  const saveProfile = (event: FormEvent<HTMLFormElement>) => {
+  const saveProfile = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-
-    setCurrentUser({
-      ...currentUser,
-      name: String(data.get('name') || currentUser.name),
-      email: String(data.get('email') || currentUser.email),
-      phone: String(data.get('phone-number') || currentUser.phone),
-      building: String(data.get('hostel-building') || currentUser.building),
-      room: String(data.get('room-number') || currentUser.room),
-      photo: photoPreview
-    });
-    notify('Profile saved successfully.');
+    try {
+      const updated = await api.updateProfile({
+        name: String(data.get('name') || currentUser.name),
+        phone: String(data.get('phone') || currentUser.phone),
+        building: String(data.get('building') || currentUser.building),
+        room: String(data.get('room') || currentUser.room)
+      });
+      setCurrentUser(updated);
+      notify('Profile saved successfully.');
+    } catch (caught) {
+      notify(caught instanceof Error ? caught.message : 'Unable to save profile.');
+    }
   };
 
   const beginTotpSetup = async () => {
@@ -1110,8 +1138,13 @@ export function ProfilePage() {
   const disableTotp = async () => {
     setTotpError('');
 
+    if (totpToken.length !== 6) {
+      setTotpError('Enter your current 6-digit authenticator code to disable two-factor authentication.');
+      return;
+    }
+
     try {
-      const user = await api.disableTotp(currentUser.id);
+      const user = await api.disableTotp(currentUser.id, totpToken);
       setCurrentUser({ ...currentUser, ...user, photo: currentUser.photo });
       setTotpSetup(null);
       setTotpToken('');
@@ -1127,7 +1160,7 @@ export function ProfilePage() {
       <section className="profile-layout">
         <Panel>
           <div className="profile-card">
-            {photoPreview ? <img className="profile-photo" src={photoPreview} alt={`${currentUser.name} profile`} /> : <span className="avatar profile">{initials(currentUser.name)}</span>}
+            <span className="avatar profile">{initials(currentUser.name)}</span>
             <h2>{currentUser.name}</h2>
             <p>
               {currentUser.role} • {currentUser.building}, Room {currentUser.room || '-'}
@@ -1137,38 +1170,13 @@ export function ProfilePage() {
         </Panel>
         <Panel title="Edit profile">
           <form className="form two-col" onSubmit={saveProfile}>
-            <Input label="Name" defaultValue={currentUser.name} />
-            <Input label="Email" type="email" defaultValue={currentUser.email} />
-            <Input label="Phone number" defaultValue={currentUser.phone} />
-            <Select label="Hostel building" options={buildings.slice(0, 4)} defaultValue={currentUser.building} />
-            <Input label="Room number" defaultValue={currentUser.room} />
-            <label className="field">
-              Profile photo
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) setPhotoPreview(URL.createObjectURL(file));
-                }}
-              />
-            </label>
+            <Input label="Name" name="name" defaultValue={currentUser.name} />
+            <Input label="Email" type="email" value={currentUser.email} disabled />
+            <Input label="Phone number" name="phone" defaultValue={currentUser.phone} />
+            <Select label="Hostel building" name="building" options={buildings.slice(0, 4)} defaultValue={currentUser.building} />
+            <Input label="Room number" name="room" defaultValue={currentUser.room} />
             <button className="button button-primary span-2">Save profile</button>
           </form>
-        </Panel>
-        <Panel title="Account settings">
-          <div className="settings-list">
-            <span>Email notifications</span>
-            <input type="checkbox" defaultChecked />
-          </div>
-          <div className="settings-list">
-            <span>SMS emergency alerts</span>
-            <input type="checkbox" defaultChecked />
-          </div>
-          <div className="settings-list">
-            <span>Maintenance update digest</span>
-            <input type="checkbox" />
-          </div>
         </Panel>
         <Panel title="Security">
           <div className="security-block">
@@ -1179,9 +1187,7 @@ export function ProfilePage() {
               </p>
             </div>
             {currentUser.totpEnabled ? (
-              <button className="button button-danger" type="button" onClick={disableTotp}>
-                Disable 2FA
-              </button>
+              <span className="muted">Current authenticator code required to disable</span>
             ) : (
               <button className="button button-secondary" type="button" onClick={beginTotpSetup}>
                 Enable 2FA
@@ -1189,6 +1195,12 @@ export function ProfilePage() {
             )}
           </div>
           {totpError && <p className="validation">{totpError}</p>}
+          {currentUser.totpEnabled && (
+            <div className="form">
+              <Input label="Current authenticator code" inputMode="numeric" maxLength={6} value={totpToken} onChange={(event) => setTotpToken(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="123456" required />
+              <button className="button button-danger" type="button" onClick={disableTotp}>Disable 2FA</button>
+            </div>
+          )}
           {totpSetup && (
             <form className="form" onSubmit={verifyTotpSetup}>
               <img className="totp-qr" src={totpSetup.qrCodeDataUrl} alt="Authenticator setup QR code" />

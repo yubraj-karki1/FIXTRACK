@@ -3,7 +3,7 @@
 //and sensitive data filtering
 
 import { userRepository } from '../repositories/user.repository.js';
-import type { CreatePrivilegedUserDto, CreateUserDto } from '../dtos/user.dto.js';
+import type { AdminUpdateUserDto, CreatePrivilegedUserDto, CreateUserDto, UpdateProfileDto } from '../dtos/user.dto.js';
 import { HttpError } from '../errors/http-error.js';
 import { hashPassword, validatePasswordStrength } from './password.service.js';
 import type { User, UserRole } from '../types/index.js';
@@ -66,5 +66,32 @@ export const userService = {
   async createPrivilegedUser(input: CreatePrivilegedUserDto): Promise<User> {
     // Route-level session and Administrator checks are required before this method is called.
     return createUserWithRole(input, input.role);
+  },
+
+  async updateProfile(userId: string, input: UpdateProfileDto): Promise<User> {
+    const updated = await userRepository.update(userId, {
+      name: input.name.trim(),
+      phone: input.phone.trim(),
+      building: input.building.trim(),
+      room: input.room.trim()
+    });
+    if (!updated) throw new HttpError(404, 'User not found');
+    return withoutPrivateFields(updated);
+  },
+
+  async adminUpdateUser(actorId: string, userId: string, input: AdminUpdateUserDto): Promise<User> {
+    if (actorId === userId && (input.role !== undefined || input.status === 'Inactive')) {
+      throw new HttpError(400, 'Administrators cannot change their own role or deactivate their own account');
+    }
+    if (input.role === undefined && input.status === undefined) {
+      throw new HttpError(400, 'A role or account status update is required');
+    }
+
+    const updated = await userRepository.update(userId, {
+      ...(input.role !== undefined ? { role: input.role } : {}),
+      ...(input.status !== undefined ? { status: input.status } : {})
+    });
+    if (!updated) throw new HttpError(404, 'User not found');
+    return withoutPrivateFields(updated);
   }
 };

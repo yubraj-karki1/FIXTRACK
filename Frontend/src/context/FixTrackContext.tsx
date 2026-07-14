@@ -2,11 +2,20 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { defaultCurrentUser, initialComplaints } from '@/data/fixtrack-data';
 import { api } from '@/lib/api';
 import type { Complaint, FixTrackContextValue, User } from '@/types';
 
 const FixTrackContext = createContext<FixTrackContextValue | null>(null);
+const anonymousUser: User = {
+  id: '',
+  name: '',
+  role: 'Student',
+  email: '',
+  phone: '',
+  building: '',
+  room: '',
+  status: 'Inactive'
+};
 const inactivityLogoutMs = 15 * 60 * 1000;
 const inactivityWarningMs = 14 * 60 * 1000;
 const activityEvents = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'focus'] as const;
@@ -14,8 +23,8 @@ const activityEvents = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchsta
 export function FixTrackProvider({ children }: PropsWithChildren) {
   const pathname = usePathname();
   const router = useRouter();
-  const [complaints, setComplaints] = useState<Complaint[]>(initialComplaints);
-  const [currentUser, setCurrentUser] = useState<User>(defaultCurrentUser);
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [currentUser, setCurrentUser] = useState<User>(anonymousUser);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   // Keep a separate status so demo data never implies the visitor is authenticated.
   const [authStatus, setAuthStatus] = useState<'loading' | 'authenticated' | 'unauthenticated'>('loading');
@@ -49,12 +58,14 @@ export function FixTrackProvider({ children }: PropsWithChildren) {
       // Store the short-lived CSRF token only in this tab's JavaScript memory after login,
       // TOTP completion or an authenticated page reload.
       await api.refreshCsrfToken();
+      const authorizedComplaints = await api.getComplaints();
       if (requestId === refreshRequestId.current) {
         // Preserve only the local profile-photo preview; all identity fields come from the backend.
         setCurrentUser((existing) => ({
           ...user,
           photo: existing.id === user.id ? existing.photo || '' : ''
         }));
+        setComplaints(authorizedComplaints);
         setAuthStatus('authenticated');
       }
       return user;
@@ -62,7 +73,8 @@ export function FixTrackProvider({ children }: PropsWithChildren) {
       // An absent, expired, or invalid cookie is treated as an unauthenticated visitor.
       api.clearCsrfToken();
       if (requestId === refreshRequestId.current) {
-        setCurrentUser(defaultCurrentUser);
+        setCurrentUser(anonymousUser);
+        setComplaints([]);
         setAuthStatus('unauthenticated');
       }
       return null;
@@ -74,7 +86,8 @@ export function FixTrackProvider({ children }: PropsWithChildren) {
     refreshRequestId.current += 1;
     await api.logout();
     setInactivityWarningVisible(false);
-    setCurrentUser(defaultCurrentUser);
+    setCurrentUser(anonymousUser);
+    setComplaints([]);
     setAuthStatus('unauthenticated');
   }, []);
 
@@ -104,7 +117,8 @@ export function FixTrackProvider({ children }: PropsWithChildren) {
       notify('Session ended after inactivity. Please log in again.');
     } finally {
       setInactivityWarningVisible(false);
-      setCurrentUser(defaultCurrentUser);
+      setCurrentUser(anonymousUser);
+      setComplaints([]);
       setAuthStatus('unauthenticated');
       router.replace('/login');
       router.refresh();

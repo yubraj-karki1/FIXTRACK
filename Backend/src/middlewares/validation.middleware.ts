@@ -181,6 +181,29 @@ export const privilegedUserValidationSchema: Schema = {
   }
 };
 
+export const updateProfileValidationSchema: Schema = {
+  name: registerValidationSchema.name,
+  phone: registerValidationSchema.phone,
+  building: registerValidationSchema.building,
+  room: registerValidationSchema.room
+};
+
+export const adminUpdateUserValidationSchema: Schema = {
+  role: {
+    in: ['body'],
+    optional: { options: { nullable: true } },
+    isIn: {
+      options: [['Student', 'Maintenance Staff', 'Administrator']],
+      errorMessage: 'Enter a valid user role.'
+    }
+  },
+  status: {
+    in: ['body'],
+    optional: { options: { nullable: true } },
+    isIn: { options: [['Active', 'Inactive']], errorMessage: 'Status must be Active or Inactive.' }
+  }
+};
+
 export const complaintIdValidationSchema: Schema = {
   id: {
     in: ['params'],
@@ -193,6 +216,86 @@ export const complaintIdValidationSchema: Schema = {
       options: /^[A-Za-z0-9-]+$/,
       errorMessage: 'Complaint ID can only contain letters, numbers, and hyphens.'
     }
+  }
+};
+
+export const userIdValidationSchema: Schema = {
+  id: {
+    in: ['params'],
+    trim: true,
+    isLength: { options: { min: 2, max: 40 }, errorMessage: 'User ID must be between 2 and 40 characters.' },
+    matches: { options: /^[A-Za-z0-9-]+$/, errorMessage: 'User ID contains invalid characters.' }
+  }
+};
+
+const complaintTextFields: Schema = {
+  title: {
+    in: ['body'],
+    trim: true,
+    isLength: { options: { min: 3, max: 120 }, errorMessage: 'Title must be between 3 and 120 characters.' }
+  },
+  category: {
+    in: ['body'],
+    isIn: {
+      options: [['Water', 'Electricity', 'Wi-Fi', 'Bathroom', 'Door/Lock', 'Furniture', 'Cleaning', 'Other']],
+      errorMessage: 'Enter a valid complaint category.'
+    }
+  },
+  priority: {
+    in: ['body'],
+    isIn: { options: [['Low', 'Medium', 'High', 'Emergency']], errorMessage: 'Enter a valid priority.' }
+  },
+  building: {
+    in: ['body'],
+    trim: true,
+    isLength: { options: { min: 2, max: 80 }, errorMessage: 'Building must be between 2 and 80 characters.' }
+  },
+  room: {
+    in: ['body'],
+    trim: true,
+    isLength: { options: { min: 1, max: 20 }, errorMessage: 'Room must be between 1 and 20 characters.' },
+    matches: { options: /^[A-Za-z0-9\s-]+$/, errorMessage: 'Room contains invalid characters.' }
+  },
+  description: {
+    in: ['body'],
+    trim: true,
+    isLength: { options: { min: 10, max: 2000 }, errorMessage: 'Description must be between 10 and 2000 characters.' }
+  },
+  image: {
+    in: ['body'],
+    optional: { options: { nullable: true, checkFalsy: true } },
+    isURL: { options: { protocols: ['https'], require_protocol: true }, errorMessage: 'Image must be a valid HTTPS URL.' },
+    isLength: { options: { max: 500 }, errorMessage: 'Image URL must be 500 characters or fewer.' }
+  }
+};
+
+export const createComplaintValidationSchema: Schema = complaintTextFields;
+
+export const updateComplaintValidationSchema: Schema = {
+  ...Object.fromEntries(
+    Object.entries(complaintTextFields).map(([key, rules]) => [
+      key,
+      { ...rules, optional: { options: { nullable: true } } }
+    ])
+  ),
+  status: {
+    in: ['body'],
+    optional: { options: { nullable: true } },
+    isIn: {
+      options: [['Pending', 'Assigned', 'In Progress', 'Resolved', 'Closed']],
+      errorMessage: 'Enter a valid complaint status.'
+    }
+  },
+  staffUserId: {
+    in: ['body'],
+    optional: { options: { nullable: true, checkFalsy: true } },
+    matches: { options: /^[A-Za-z0-9-]{2,40}$/, errorMessage: 'Enter a valid staff user ID.' }
+  },
+  note: {
+    in: ['body'],
+    optional: { options: { nullable: true, checkFalsy: true } },
+    trim: true,
+    isLength: { options: { min: 2, max: 500 }, errorMessage: 'Note must be between 2 and 500 characters.' }
   }
 };
 

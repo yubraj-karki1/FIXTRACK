@@ -14,3 +14,15 @@ export interface CreateUserDto {
 export interface CreatePrivilegedUserDto extends CreateUserDto {
   role: Exclude<UserRole, 'Student'>;
 }
+
+export interface UpdateProfileDto {
+  name: string;
+  phone: string;
+  building: string;
+  room: string;
+}
+
+export interface AdminUpdateUserDto {
+  role?: UserRole;
+  status?: 'Active' | 'Inactive';
+}

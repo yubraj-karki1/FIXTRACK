@@ -38,7 +38,9 @@ export interface Complaint {
   status: ComplaintStatus;
   building: string;
   room: string;
+  studentUserId: string;
   student: string;
+  staffUserId?: string;
   staff: string;
   submitted: string;
   description: string;

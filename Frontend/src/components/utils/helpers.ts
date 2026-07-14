@@ -13,10 +13,7 @@ import type { User } from '@/types';
  */
 export function getDashboardPath(userOrEmail: User | string): string {
   const role = typeof userOrEmail === 'string' ? '' : userOrEmail.role;
-  const email = (typeof userOrEmail === 'string' ? userOrEmail : userOrEmail.email).toLowerCase();
-
-  if (role === 'Maintenance Staff' || email.includes('staff') || email.includes('maintenance') 
-    || email.includes('ramesh') || email.includes('mina')) return '/staff';
+  if (role === 'Maintenance Staff') return '/staff';
   return '/student';
 }
 
@@ -27,16 +24,14 @@ export function getDashboardPath(userOrEmail: User | string): string {
 export function isAdminUser(userOrEmail?: User | string): boolean {
   if (!userOrEmail) return false;
 
-  const role = typeof userOrEmail === 'string' ? '' : userOrEmail.role;
-  const email = (typeof userOrEmail === 'string' ? userOrEmail : userOrEmail.email).toLowerCase();
-  return role === 'Administrator' || email.includes('admin');
+  return typeof userOrEmail !== 'string' && userOrEmail.role === 'Administrator';
 }
 
 /**
  * Checks if a path is restricted to admin users only
  */
 export function isAdminOnlyPath(path?: string | null): boolean {
-  return !!path && (path === '/complaints/new' || path === '/admin' || path.startsWith('/admin/'));
+  return !!path && (path === '/admin' || path.startsWith('/admin/'));
 }
 
 /**

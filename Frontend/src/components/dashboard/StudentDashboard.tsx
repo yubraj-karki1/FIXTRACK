@@ -27,7 +27,7 @@ const categoryIcons: Record<string, LucideIcon> = {
 
 export function StudentDashboardPage() {
   const { complaints, currentUser } = useFixTrack();
-  const mine = complaints.filter((complaint) => complaint.student === currentUser.name);
+  const mine = complaints.filter((complaint) => complaint.studentUserId === currentUser.id);
   const stats = makeStatusStats(mine);
 
   return (

@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { HttpError } from '../errors/http-error.js';
 import { userRepository } from '../repositories/user.repository.js';
 import type { AuthLoginResponse, TotpSetupResponse, User } from '../types/index.js';
+import { decryptSecret, encryptSecret } from './secret-encryption.service.js';
 
 const issuer = 'FixTrack';
 
@@ -33,7 +34,7 @@ export const totpService = {
     const secret = generateSecret();
     const otpauthUrl = generateURI({ issuer, label: user.email, secret });
     const qrCodeDataUrl = await QRCode.toDataURL(otpauthUrl);
-    await userRepository.update(user.id, { pendingTotpSecret: secret });
+    await userRepository.update(user.id, { pendingTotpSecret: encryptSecret(secret) });
 
     return { userId: user.id, otpauthUrl, qrCodeDataUrl };
   },
@@ -44,7 +45,7 @@ export const totpService = {
       throw new HttpError(404, 'TOTP setup was not started for this user');
     }
 
-    const result = verifySync({ token, secret: user.pendingTotpSecret });
+    const result = verifySync({ token, secret: decryptSecret(user.pendingTotpSecret) });
     if (!result.valid) {
       throw new HttpError(400, 'Invalid authenticator code');
     }
@@ -64,7 +65,7 @@ export const totpService = {
       throw new HttpError(404, 'TOTP is not enabled for this user');
     }
 
-    const result = verifySync({ token, secret: user.totpSecret });
+    const result = verifySync({ token, secret: decryptSecret(user.totpSecret) });
     if (!result.valid) {
       throw new HttpError(400, 'Invalid authenticator code');
     }

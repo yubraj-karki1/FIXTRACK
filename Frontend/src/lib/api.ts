@@ -1,4 +1,14 @@
-import type { AuthLoginResponse, TotpSetupResponse, User } from '@/types';
+import type {
+  AccountStatus,
+  AuthLoginResponse,
+  Complaint,
+  ComplaintCategoryName,
+  ComplaintPriority,
+  ComplaintStatus,
+  TotpSetupResponse,
+  User,
+  UserRole
+} from '@/types';
 
 // Empty uses Next's same-origin API rewrite; a configured value supports a separate backend host.
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
@@ -21,9 +31,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<ApiResponse
   if (!headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
-
-  // A hostile site cannot read this in-memory token and CORS prevents it from setting the
-  // custom header. The backend still validates the signature and session binding.
   if (csrfProtectedMethods.has(method) && csrfToken) {
     headers.set('X-CSRF-Token', csrfToken);
   }
@@ -31,8 +38,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<ApiResponse
   try {
     response = await fetch(`${apiBaseUrl}${path}`, {
       ...init,
-      // Required for cross-origin development and harmless for same-origin rewrites.
-      // The browser attaches HttpOnly cookies without exposing the JWT to JavaScript.
       credentials: 'include',
       headers
     });
@@ -87,6 +92,78 @@ export const api = {
     return payload.data;
   },
 
+  async getComplaints(): Promise<Complaint[]> {
+    const payload = await request<Complaint[]>('/api/complaints', { method: 'GET', cache: 'no-store' });
+    return payload.data;
+  },
+
+  async createComplaint(input: {
+    title: string;
+    category: ComplaintCategoryName;
+    priority: ComplaintPriority;
+    building: string;
+    room: string;
+    description: string;
+    image?: string;
+  }): Promise<Complaint> {
+    const payload = await request<Complaint>('/api/complaints', {
+      method: 'POST',
+      body: JSON.stringify(input)
+    });
+    return payload.data;
+  },
+
+  async updateComplaint(id: string, input: {
+    status?: ComplaintStatus;
+    priority?: ComplaintPriority;
+    staffUserId?: string;
+    note?: string;
+  }): Promise<Complaint> {
+    const payload = await request<Complaint>(`/api/complaints/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input)
+    });
+    return payload.data;
+  },
+
+  async getUsers(): Promise<User[]> {
+    const payload = await request<User[]>('/api/users', { method: 'GET', cache: 'no-store' });
+    return payload.data;
+  },
+
+  async createPrivilegedUser(input: {
+    name: string;
+    email: string;
+    password: string;
+    phone: string;
+    role: Exclude<UserRole, 'Student'>;
+    building: string;
+    room: string;
+    studentId?: string;
+  }): Promise<User> {
+    const payload = await request<User>('/api/admin/users', {
+      method: 'POST',
+      body: JSON.stringify(input)
+    });
+    return payload.data;
+  },
+
+  async updateUser(id: string, input: { role?: UserRole; status?: AccountStatus }): Promise<User> {
+    const payload = await request<User>(`/api/admin/users/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input)
+    });
+    return payload.data;
+  },
+
+  async updateProfile(input: { name: string; phone: string; building: string; room: string }): Promise<User> {
+    const payload = await request<User>('/api/auth/profile', {
+      method: 'PATCH',
+      body: JSON.stringify(input)
+    });
+    return payload.data;
+  },
+
   async refreshCsrfToken(): Promise<void> {
     // This authenticated, no-store GET response safely transfers a signed CSRF token to memory.
     const payload = await request<{ token: string }>('/api/auth/csrf', {
@@ -135,10 +212,10 @@ export const api = {
     return payload.data;
   },
 
-  async disableTotp(userId: string): Promise<User> {
+  async disableTotp(userId: string, token: string): Promise<User> {
     const payload = await request<User>('/api/auth/totp/disable', {
       method: 'POST',
-      body: JSON.stringify({ userId })
+      body: JSON.stringify({ userId, token })
     });
     return payload.data;
   }

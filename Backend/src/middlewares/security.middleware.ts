@@ -68,16 +68,9 @@ function isSecureRequest(request: IncomingMessage): boolean {
 export function enforceHttps(request: IncomingMessage, response: ServerResponse): boolean {
   if (!config.requireHttps || isSecureRequest(request)) return false;
 
-  const host = request.headers.host;
-  if (!host) {
-    response.writeHead(400, { 'Content-Type': 'application/json' });
-    response.end(JSON.stringify({ data: null, message: 'Host header is required' }));
-    return true;
-  }
-
-  // Use only an origin-form path to avoid reflecting an attacker-controlled absolute URL.
+  // Redirect to the configured canonical origin instead of reflecting an untrusted Host header.
   const path = request.url?.startsWith('/') ? request.url : '/';
-  response.writeHead(308, { Location: `https://${host}${path}` });
+  response.writeHead(308, { Location: new URL(path, config.publicOrigin).toString() });
   response.end();
   return true;
 }

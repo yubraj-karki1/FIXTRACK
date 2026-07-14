@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Menu, X, Bell, LogOut, LayoutDashboard, ClipboardCheck, BriefcaseBusiness, Plus, UserCog, Archive, Users, Settings, Search, Wrench, Moon, Sun } from 'lucide-react';
+import { Menu, X, LogOut, LayoutDashboard, ClipboardCheck, BriefcaseBusiness, Plus, UserCog, Archive, Users, Settings, Wrench, Moon, Sun } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useFixTrack } from '@/context/FixTrackContext';
 import { initials } from '@/data/helpers';
@@ -25,14 +25,18 @@ export function DashboardLayout({ children }: PropsWithChildren) {
     ['Student', '/student', LayoutDashboard],
     ['My Complaints', '/complaints', ClipboardCheck],
     ['Staff', '/staff', BriefcaseBusiness],
-    ['Add Panel', '/complaints/new', Plus, true],
+    ['New Complaint', '/complaints/new', Plus],
     ['Admin', '/admin', UserCog, true],
     ['Manage Reports', '/admin/complaints', Archive, true],
     ['Users', '/admin/users', Users, true],
     ['Profile', '/profile', Settings]
   ];
 
-  const visibleNav = nav.filter(([, , , adminOnly]) => !adminOnly || isAdmin);
+  const visibleNav = nav.filter(([label, , , adminOnly]) =>
+    (!adminOnly || isAdmin) &&
+    (label !== 'Staff' || currentUser.role === 'Maintenance Staff' || isAdmin) &&
+    (label !== 'New Complaint' || currentUser.role !== 'Maintenance Staff')
+  );
 
   useEffect(() => {
     if (authStatus === 'unauthenticated') {
@@ -81,15 +85,10 @@ export function DashboardLayout({ children }: PropsWithChildren) {
           <button className="icon-button mobile-only" onClick={() => setOpen(true)} aria-label="Open menu">
             <Menu />
           </button>
-          <div className="topbar-search">
-            <Search />
-            <input aria-label="Global search" placeholder="Search complaints, rooms, staff..." />
-          </div>
           <div className="topbar-actions">
             <button className="icon-button" type="button" onClick={toggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
               {theme === 'dark' ? <Sun /> : <Moon />}
             </button>
-            <Bell />
             <span className="avatar">{initials(currentUser.name)}</span>
             <button className="button button-secondary logout-button" type="button" onClick={() => setShowLogoutConfirm(true)}>
               <LogOut /> Logout

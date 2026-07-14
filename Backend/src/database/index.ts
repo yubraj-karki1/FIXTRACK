@@ -3,16 +3,18 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Collection, Db, MongoClient, OptionalUnlessRequiredId } from 'mongodb';
 import { config } from '../config/index.js';
-import { complaints, users as seedUsers } from '../data/index.js';
+import { complaints as seedComplaints, users as seedUsers } from '../data/index.js';
 import { ensurePasswordHash } from '../services/password.service.js';
 import type { Complaint, User } from '../types/index.js';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const usersFile = resolve(currentDir, '../../data/users.json');
+const complaintsFile = resolve(currentDir, '../../data/complaints.json');
 let client: MongoClient | null = null;
 let mongoDatabase: Db | null = null;
 
 function loadUsers(): User[] {
+  if (!config.seedDemoData) return [];
   let loadedUsers: User[];
 
   if (!existsSync(usersFile)) {
@@ -43,9 +45,26 @@ function persistUsers(users: User[]): void {
   writeFileSync(usersFile, JSON.stringify(users, null, 2));
 }
 
+function loadComplaints(): Complaint[] {
+  if (!config.seedDemoData) return [];
+  if (!existsSync(complaintsFile)) return seedComplaints;
+
+  try {
+    const storedComplaints = JSON.parse(readFileSync(complaintsFile, 'utf8')) as Complaint[];
+    return storedComplaints.length ? storedComplaints : seedComplaints;
+  } catch {
+    return seedComplaints;
+  }
+}
+
+function persistComplaints(complaints: Complaint[]): void {
+  mkdirSync(dirname(complaintsFile), { recursive: true });
+  writeFileSync(complaintsFile, JSON.stringify(complaints, null, 2));
+}
+
 export const database = {
   users: loadUsers(),
-  complaints
+  complaints: loadComplaints()
 };
 
 export const mongo = {
@@ -79,11 +98,32 @@ export async function connectDatabase(): Promise<void> {
   mongoDatabase = client.db(config.mongodbDatabase);
 
   await mongo.users().createIndex({ email: 1 }, { unique: true });
-  await seedMongoCollection(mongo.users(), database.users);
-  await seedMongoCollection(mongo.complaints(), database.complaints);
+  await mongo.users().createIndex({ id: 1 }, { unique: true });
+  await mongo.complaints().createIndex({ id: 1 }, { unique: true });
+  await mongo.complaints().createIndex({ studentUserId: 1, submitted: -1 });
+  await mongo.complaints().createIndex({ staffUserId: 1, status: 1 });
+  if (config.seedDemoData) {
+    await seedMongoCollection(mongo.users(), database.users);
+    await seedMongoCollection(mongo.complaints(), database.complaints);
+  }
   await migrateMongoPasswords();
+  await migrateSeedComplaintOwnership();
 
   console.log(`MongoDB connected: ${config.mongodbDatabase}`);
+}
+
+async function migrateSeedComplaintOwnership(): Promise<void> {
+  await Promise.all(seedComplaints.map(async (complaint) => {
+    await mongo.complaints().updateOne(
+      { id: complaint.id, studentUserId: { $exists: false } },
+      {
+        $set: {
+          studentUserId: complaint.studentUserId,
+          ...(complaint.staffUserId ? { staffUserId: complaint.staffUserId } : {})
+        }
+      }
+    );
+  }));
 }
 
 async function migrateMongoPasswords(): Promise<void> {
@@ -107,4 +147,8 @@ async function seedMongoCollection<T extends { id: string }>(collection: Collect
 
 export function saveUsers(): void {
   persistUsers(database.users);
+}
+
+export function saveComplaints(): void {
+  persistComplaints(database.complaints);
 }

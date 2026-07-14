@@ -1,4 +1,5 @@
 import type { IncomingMessage } from 'node:http';
+import { config } from '../config/index.js';
 import { HttpError } from '../errors/http-error.js';
 
 interface RateLimitRule {
@@ -13,6 +14,7 @@ interface RateLimitBucket {
 
 const minute = 60 * 1000;
 const rateLimitBuckets = new Map<string, RateLimitBucket>();
+let requestCount = 0;
 
 const sensitiveRouteLimits: Record<string, RateLimitRule> = {
   // Login, registration, and TOTP checks are deliberately stricter than read-only endpoints.
@@ -28,7 +30,7 @@ const sensitiveRouteLimits: Record<string, RateLimitRule> = {
 
 function getClientIp(request: IncomingMessage): string {
   const forwardedFor = request.headers['x-forwarded-for'];
-  if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
+  if (config.trustProxy && typeof forwardedFor === 'string' && forwardedFor.trim()) {
     return forwardedFor.split(',')[0].trim();
   }
 
@@ -41,6 +43,12 @@ export function assertRateLimit(request: IncomingMessage, pathname: string): voi
   if (!rule) return;
 
   const now = Date.now();
+  requestCount += 1;
+  if (requestCount % 100 === 0) {
+    for (const [bucketKey, candidate] of rateLimitBuckets) {
+      if (candidate.resetAt <= now) rateLimitBuckets.delete(bucketKey);
+    }
+  }
   const bucketKey = `${key}:${getClientIp(request)}`;
   const bucket = rateLimitBuckets.get(bucketKey);
 

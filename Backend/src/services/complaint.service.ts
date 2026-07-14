@@ -1,17 +1,125 @@
+import { randomUUID } from 'node:crypto';
+import type { CreateComplaintDto, UpdateComplaintDto } from '../dtos/complaint.dto.js';
 import { HttpError } from '../errors/http-error.js';
 import { complaintRepository } from '../repositories/complaint.repository.js';
-import type { Complaint } from '../types/index.js';
+import { userRepository } from '../repositories/user.repository.js';
+import type { Complaint, ComplaintStatus, User } from '../types/index.js';
+
+const defaultEvidenceImage = 'https://images.unsplash.com/photo-1581092795360-fd1ca04f0952?auto=format&fit=crop&w=900&q=80';
+
+function canAccessComplaint(user: User, complaint: Complaint): boolean {
+  if (user.role === 'Administrator') return true;
+  if (user.role === 'Maintenance Staff') return complaint.staffUserId === user.id;
+  return complaint.studentUserId === user.id;
+}
+
+function assertComplaintAccess(user: User, complaint: Complaint): void {
+  if (!canAccessComplaint(user, complaint)) {
+    // Avoid revealing whether an inaccessible complaint ID exists.
+    throw new HttpError(404, 'Complaint not found');
+  }
+}
+
+function addStatusHistory(complaint: Complaint, status: ComplaintStatus): ComplaintStatus[] {
+  return complaint.updates.at(-1) === status ? complaint.updates : [...complaint.updates, status];
+}
+
+async function findComplaint(id: string): Promise<Complaint> {
+  const complaint = await complaintRepository.findById(id);
+  if (!complaint) throw new HttpError(404, 'Complaint not found');
+  return complaint;
+}
 
 export const complaintService = {
-  async getComplaints(): Promise<Complaint[]> {
-    return complaintRepository.findAll();
+  async getComplaints(user: User): Promise<Complaint[]> {
+    const complaints = await complaintRepository.findAll();
+    return complaints.filter((complaint) => canAccessComplaint(user, complaint));
   },
 
-  async getComplaintById(id: string): Promise<Complaint> {
-    const complaint = await complaintRepository.findById(id);
-    if (!complaint) {
-      throw new HttpError(404, 'Complaint not found');
-    }
+  async getComplaintById(id: string, user: User): Promise<Complaint> {
+    const complaint = await findComplaint(id);
+    assertComplaintAccess(user, complaint);
     return complaint;
+  },
+
+  async createComplaint(input: CreateComplaintDto, user: User): Promise<Complaint> {
+    if (user.role === 'Maintenance Staff') {
+      throw new HttpError(403, 'Maintenance staff cannot submit student complaints');
+    }
+
+    return complaintRepository.create({
+      id: `FX-${randomUUID().slice(0, 8).toUpperCase()}`,
+      title: input.title,
+      category: input.category,
+      priority: input.priority,
+      status: 'Pending',
+      building: input.building,
+      room: input.room,
+      studentUserId: user.id,
+      student: user.name,
+      staff: 'Unassigned',
+      submitted: new Date().toISOString().slice(0, 10),
+      description: input.description,
+      image: input.image || defaultEvidenceImage,
+      notes: [],
+      updates: ['Pending']
+    });
+  },
+
+  async updateComplaint(id: string, input: UpdateComplaintDto, user: User): Promise<Complaint> {
+    const complaint = await findComplaint(id);
+    assertComplaintAccess(user, complaint);
+
+    const updates: Partial<Complaint> = {};
+
+    if (user.role === 'Student') {
+      if (complaint.status !== 'Pending' || input.status !== 'Closed') {
+        throw new HttpError(403, 'Students may only cancel their own pending complaints');
+      }
+      updates.status = 'Closed';
+      updates.updates = addStatusHistory(complaint, 'Closed');
+      updates.notes = [...complaint.notes, 'Cancelled by the student before assignment.'];
+    } else if (user.role === 'Maintenance Staff') {
+      if (input.status) {
+        const validTransition =
+          (complaint.status === 'Assigned' && input.status === 'In Progress') ||
+          (complaint.status === 'In Progress' && input.status === 'Resolved');
+        if (!validTransition) throw new HttpError(409, 'Invalid maintenance status transition');
+        updates.status = input.status;
+        updates.updates = addStatusHistory(complaint, input.status);
+      }
+      if (input.note) updates.notes = [...complaint.notes, `${user.name}: ${input.note}`];
+      if (!input.status && !input.note) throw new HttpError(400, 'A status or note update is required');
+    } else {
+      if (input.title !== undefined) updates.title = input.title;
+      if (input.category !== undefined) updates.category = input.category;
+      if (input.priority !== undefined) updates.priority = input.priority;
+      if (input.building !== undefined) updates.building = input.building;
+      if (input.room !== undefined) updates.room = input.room;
+      if (input.description !== undefined) updates.description = input.description;
+      if (input.image !== undefined) updates.image = input.image;
+
+      let nextStatus = input.status;
+      if (input.staffUserId) {
+        const staff = await userRepository.findById(input.staffUserId);
+        if (!staff || staff.role !== 'Maintenance Staff' || staff.status !== 'Active') {
+          throw new HttpError(400, 'Assigned user must be active maintenance staff');
+        }
+        updates.staffUserId = staff.id;
+        updates.staff = staff.name;
+        if (!nextStatus && complaint.status === 'Pending') nextStatus = 'Assigned';
+      }
+
+      if (nextStatus) {
+        updates.status = nextStatus;
+        updates.updates = addStatusHistory(complaint, nextStatus);
+      }
+      if (input.note) updates.notes = [...complaint.notes, `${user.name}: ${input.note}`];
+      if (!Object.keys(updates).length) throw new HttpError(400, 'At least one complaint update is required');
+    }
+
+    const updated = await complaintRepository.update(id, updates);
+    if (!updated) throw new HttpError(404, 'Complaint not found');
+    return updated;
   }
 };

@@ -6,7 +6,7 @@
 'use client';
 
 import Link from 'next/link';
-import { FileText, Activity, Camera, Users, Wrench, LogIn, Search } from 'lucide-react';
+import { FileText, Activity, Users, Wrench, LogIn, Search } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 function FeatureCard({ icon: Icon, title, text }: { icon: LucideIcon; title: string; text: string }) {
@@ -78,7 +78,7 @@ export function LandingPage() {
       <section className="feature-grid">
         <FeatureCard icon={FileText} title="Fast reporting" text="Students can submit detailed complaints with category, room, priority, and description." />
         <FeatureCard icon={Activity} title="Live status updates" text="Clear badges and timelines show every step from pending to closed." />
-        <FeatureCard icon={Camera} title="Image evidence" text="Photo upload previews help staff inspect the problem before visiting the room." />
+        <FeatureCard icon={FileText} title="Detailed reports" text="Structured repair details help staff understand the problem before visiting the room." />
         <FeatureCard icon={Users} title="Staff management" text="Admins can assign work, monitor load, and filter repairs by role or building." />
       </section>
       <footer className="footer">

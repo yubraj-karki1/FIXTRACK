@@ -27,6 +27,7 @@ class CookieCapture {
 
 const originalFindByEmail = userRepository.findByEmail;
 const originalCreate = userRepository.create;
+const originalUpdate = userRepository.update;
 const createdUsers: User[] = [];
 let baseUrl = '';
 let closeServer: (() => Promise<void>) | undefined;
@@ -37,6 +38,10 @@ before(async () => {
   userRepository.create = async (user: User) => {
     createdUsers.push(user);
     return user;
+  };
+  userRepository.update = async (id, updates) => {
+    const existing = await userRepository.findById(id);
+    return existing ? { ...existing, ...updates } : undefined;
   };
 
   const server = createServer((request, response) => {
@@ -55,6 +60,7 @@ before(async () => {
 after(async () => {
   userRepository.findByEmail = originalFindByEmail;
   userRepository.create = originalCreate;
+  userRepository.update = originalUpdate;
   await closeServer?.();
 });
 
@@ -155,4 +161,40 @@ test('an administrator can create a privileged user only through the protected r
   assert.equal(payload.data.role, 'Maintenance Staff');
   assert.equal(createdUsers.at(-1)?.role, 'Maintenance Staff');
   assert.equal(response.headers.get('set-cookie'), null, 'creating another user must not replace the admin session');
+});
+
+test('authenticated users can update only the allowed fields on their own profile', async () => {
+  const credentials = await csrfCredentials('U-1001');
+  const response = await fetch(`${baseUrl}/api/auth/profile`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Cookie: credentials.cookie, 'X-CSRF-Token': credentials.token },
+    body: JSON.stringify({
+      name: 'Aarav Updated', phone: '+977 9800011111', building: 'Cedar Block', room: '119',
+      email: 'attacker-controlled@example.com', role: 'Administrator'
+    })
+  });
+  const payload = await response.json() as ApiResponse<User>;
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.data.name, 'Aarav Updated');
+  assert.equal(payload.data.email, 'aarav@hostel.edu');
+  assert.equal(payload.data.role, 'Student');
+});
+
+test('only administrators can update another user role or account status', async () => {
+  const studentCredentials = await csrfCredentials('U-1001');
+  assert.equal((await fetch(`${baseUrl}/api/admin/users/U-2001`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Cookie: studentCredentials.cookie, 'X-CSRF-Token': studentCredentials.token },
+    body: JSON.stringify({ status: 'Inactive' })
+  })).status, 403);
+
+  const adminCredentials = await csrfCredentials('U-3001');
+  const response = await fetch(`${baseUrl}/api/admin/users/U-2001`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Cookie: adminCredentials.cookie, 'X-CSRF-Token': adminCredentials.token },
+    body: JSON.stringify({ status: 'Inactive' })
+  });
+  assert.equal(response.status, 200);
+  assert.equal(((await response.json()) as ApiResponse<User>).data.status, 'Inactive');
 });

@@ -83,9 +83,11 @@ export const authController = {
   
    //Disables TOTP on user account
   
-  async disableTotp(request: IncomingMessage, response: ServerResponse, userId: string): Promise<void> {
+  async disableTotp(request: IncomingMessage, response: ServerResponse, userId: string, token: string): Promise<void> {
     // Prevent an authenticated user from disabling another user's second factor.
     await assertCurrentUser(request, userId);
+    // Disabling the second factor requires proof of the current authenticator.
+    await totpService.verifyLogin(userId, token);
     const user = await totpService.disable(userId);
     response.setHeader('Cache-Control', 'no-store');
     sendJson<User>(response, 200, {

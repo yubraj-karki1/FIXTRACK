@@ -8,7 +8,6 @@
 import { FormEvent, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useFixTrack } from '@/context/FixTrackContext';
-import { users } from '@/data/fixtrack-data';
 import { api } from '@/lib/api';
 import { Input } from '../shared/UIComponents';
 import { AuthShell } from '../shared/UIComponents';
@@ -29,8 +28,7 @@ export function LoginPage() {
 
     try {
       const login = await api.login(email, password);
-      const matchedUser = users.find((user) => user.email.toLowerCase() === email);
-      const loginUser = login.user || matchedUser || email;
+      const loginUser = login.user || email;
       const target = getLoginTarget(requestedNext, loginUser);
 
       if (login.requiresTotp && login.userId) {
@@ -64,7 +62,7 @@ export function LoginPage() {
           <label className="check">
             <input type="checkbox" /> Remember me
           </label>
-          <a href="/login">Forgot password?</a>
+          <span className="muted">Contact an administrator if you cannot access your account.</span>
         </div>
         <button className="button button-primary full" type="submit">
           Login
