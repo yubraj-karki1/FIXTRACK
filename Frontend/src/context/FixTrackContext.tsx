@@ -47,7 +47,7 @@ export function FixTrackProvider({ children }: PropsWithChildren) {
       // /auth/me verifies the signed cookie and reloads the user from server storage.
       const user = await api.getCurrentUser();
       // Store the short-lived CSRF token only in this tab's JavaScript memory after login,
-      // Google sign-in, TOTP completion, or an authenticated page reload.
+      // TOTP completion or an authenticated page reload.
       await api.refreshCsrfToken();
       if (requestId === refreshRequestId.current) {
         // Preserve only the local profile-photo preview; all identity fields come from the backend.

@@ -318,7 +318,7 @@ function AuthShell({ title, subtitle, children }: PropsWithChildren<{ title: str
   );
 }
 
-//Login page - Email/password authentication with Google login option and TOTP support
+//Login page - Email/password authentication with TOTP support
 //Handles redirects based on user role and requested destination
 
 export function LoginPage() {
@@ -326,37 +326,6 @@ export function LoginPage() {
   const searchParams = useSearchParams();
   const { notify, refreshAuth } = useFixTrack();
   const [error, setError] = useState('');
-  const googleLoginEnabled = process.env.NEXT_PUBLIC_ENABLE_GOOGLE_LOGIN === 'true';
-
-  useEffect(() => {
-    // Google returns only a success marker. The verified cookie is resolved through refreshAuth.
-    const googleError = searchParams.get('googleError');
-    if (googleError) {
-      if (googleError.includes('Google login')) {
-        router.replace('/login');
-        return;
-      }
-
-      setError(googleError);
-      return;
-    }
-
-    if (searchParams.get('googleLogin') !== 'success') return;
-
-    // Google sets the same HttpOnly session cookie; /auth/me is the trusted identity source.
-    void (async () => {
-      const user = await refreshAuth();
-      if (!user) {
-        setError('Unable to finish Google login.');
-        return;
-      }
-
-      notify('Logged in with Google.');
-      router.replace(getLoginTarget(searchParams.get('next'), user));
-      router.refresh();
-    })();
-  }, [notify, refreshAuth, router, searchParams]);
-
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
@@ -406,11 +375,6 @@ export function LoginPage() {
         <button className="button button-primary full" type="submit">
           Login
         </button>
-        {googleLoginEnabled && (
-          <a className="button button-secondary full" href={api.googleLoginUrl}>
-            Continue with Google
-          </a>
-        )}
         <p className="form-help">
           No account yet? <Link href="/register">Create an account</Link>
         </p>

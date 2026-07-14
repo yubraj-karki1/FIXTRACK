@@ -1,12 +1,10 @@
 
  //Authentication Controller
- //Handles all authentication endpoints: login, TOTP setup/verification, Google OAuth, logout
+ //Handles all authentication endpoints: login, TOTP setup/verification, logout
  
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { config } from '../config/index.js';
 import { HttpError } from '../errors/http-error.js';
 import { authService } from '../services/auth.service.js';
-import { googleAuthService } from '../services/google-auth.service.js';
 import { totpService } from '../services/totp.service.js';
 import { sessionService } from '../services/session.service.js';
 import { sendJson } from './response.js';
@@ -14,46 +12,6 @@ import type { LoginRequestDto } from '../dtos/auth.dto.js';
 import type { AuthLoginResponse, TotpSetupResponse, User } from '../types/index.js';
 
 export const authController = {
-
-//Initiates Google OAuth flow by redirecting to Google login URL
-   
-  googleLogin(response: ServerResponse): void {
-    // Store the random state in an HttpOnly cookie before redirecting to Google.
-    const state = sessionService.createGoogleState(response);
-    response.setHeader('Cache-Control', 'no-store');
-    response.writeHead(302, { Location: googleAuthService.getAuthUrl(state) });
-    response.end();
-  },
-
-  async googleCallback(
-    request: IncomingMessage,
-    response: ServerResponse,
-    code: string,
-    state: string
-  ): Promise<void> {
-    // Reject callbacks that were not initiated by this browser before exchanging the Google code.
-    sessionService.verifyAndClearGoogleState(request, response, state);
-    const user = await googleAuthService.verifyCallback(code);
-    const loginResponse = totpService.getLoginResponse(user);
-    const redirectUrl = new URL(config.googleSuccessRedirect);
-
-    if (loginResponse.requiresTotp && loginResponse.userId) {
-      // Google authentication does not bypass an account's configured second factor.
-      sessionService.issuePendingTotp(response, loginResponse.userId);
-      redirectUrl.pathname = '/totp';
-      redirectUrl.search = '';
-      redirectUrl.searchParams.set('userId', loginResponse.userId);
-    } else {
-      sessionService.issueSession(response, user.id);
-      // The URL contains only a benign marker; identity is reloaded from /auth/me.
-      redirectUrl.searchParams.set('googleLogin', 'success');
-    }
-
-    response.setHeader('Cache-Control', 'no-store');
-    response.writeHead(302, { Location: redirectUrl.toString() });
-    response.end();
-  },
-
   
    //Email/password login endpoint
    //Validates credentials and returns user + TOTP requirement if enabled
@@ -142,7 +100,7 @@ export const authController = {
       response.setHeader('Cache-Control', 'no-store');
       sendJson<User>(response, 200, { data: user });
     } catch (error) {
-      // Clear only the invalid full session. A Google/TOTP pre-auth challenge must
+      // Clear only the invalid full session. A TOTP pre-auth challenge must
       // survive the frontend's initial /me check on the public TOTP page.
       sessionService.clearSession(response);
       throw error;

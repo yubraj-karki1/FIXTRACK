@@ -49,9 +49,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<ApiResponse
 }
 
 export const api = {
-  // Use the same browser-visible API origin for Google and password authentication.
-  googleLoginUrl: `${apiBaseUrl}/api/auth/google`,
-
   async login(email: string, password: string): Promise<AuthLoginResponse> {
     // The backend writes the session cookie; this response never includes a JWT.
     const payload = await request<AuthLoginResponse>('/api/auth/login', {

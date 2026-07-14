@@ -1,8 +1,7 @@
 //User Service
 //Handles user business logic: creation, retrieval, password validation,
-//Google OAuth user creation, and sensitive data filtering
+//and sensitive data filtering
 
-import { randomUUID } from 'node:crypto';
 import { userRepository } from '../repositories/user.repository.js';
 import type { CreateUserDto } from '../dtos/user.dto.js';
 import { HttpError } from '../errors/http-error.js';
@@ -55,42 +54,6 @@ export const userService = {
       phone: input.phone.trim(),
       building: input.building,
       room: input.room.trim(),
-      status: 'Active',
-      totpEnabled: false
-    });
-
-    return withoutPrivateFields(user);
-  },
-   //Creates or retrieves user for Google OAuth
-   //- If user exists by email, returns existing user
-   //- If new user, creates account with random password (Google login doesn't use password)
-   //- Assigns Student role and default building
-   
-  async findOrCreateGoogleUser(input: { name: string; email: string }): Promise<User> {
-    const email = input.email.trim().toLowerCase();
-    if (!email) {
-      throw new HttpError(400, 'Google account did not provide an email address');
-    }
-
-    // Return existing user if found
-    const existing = await userRepository.findByEmail(email);
-    if (existing) {
-      if (existing.status !== 'Active') {
-        throw new HttpError(403, 'This account is inactive');
-      }
-      return withoutPrivateFields(existing);
-    }
-
-    // Create new user from Google profile
-    const user = await userRepository.create({
-      id: `U-${Date.now().toString().slice(-5)}`,
-      name: input.name.trim() || email.split('@')[0],
-      role: 'Student',
-      email,
-      password: await hashPassword(`google:${randomUUID()}`), // Unused password for OAuth
-      phone: '',
-      building: 'Maple Hall',
-      room: '-',
       status: 'Active',
       totpEnabled: false
     });

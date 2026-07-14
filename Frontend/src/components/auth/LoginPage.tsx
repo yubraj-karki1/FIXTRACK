@@ -1,11 +1,11 @@
 // Login Page Component
-// Email/password authentication with Google login option and TOTP support
+// Email/password authentication with TOTP support
 // Handles redirects based on user role and requested destination
  
 
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useFixTrack } from '@/context/FixTrackContext';
 import { users } from '@/data/fixtrack-data';
@@ -19,36 +19,6 @@ export function LoginPage() {
   const searchParams = useSearchParams();
   const { notify, refreshAuth } = useFixTrack();
   const [error, setError] = useState('');
-  const googleLoginEnabled = process.env.NEXT_PUBLIC_ENABLE_GOOGLE_LOGIN === 'true';
-
-  useEffect(() => {
-    // Google never returns user data in the URL; /auth/me reads the secure cookie instead.
-    const googleError = searchParams.get('googleError');
-    if (googleError) {
-      if (googleError.includes('Google login')) {
-        router.replace('/login');
-        return;
-      }
-
-      setError(googleError);
-      return;
-    }
-
-    if (searchParams.get('googleLogin') !== 'success') return;
-
-    void (async () => {
-      const user = await refreshAuth();
-      if (!user) {
-        setError('Unable to finish Google login.');
-        return;
-      }
-
-      notify('Logged in with Google.');
-      router.replace(getLoginTarget(searchParams.get('next'), user));
-      router.refresh();
-    })();
-  }, [notify, refreshAuth, router, searchParams]);
-
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
@@ -99,11 +69,6 @@ export function LoginPage() {
         <button className="button button-primary full" type="submit">
           Login
         </button>
-        {googleLoginEnabled && (
-          <a className="button button-secondary full" href={api.googleLoginUrl}>
-            Continue with Google
-          </a>
-        )}
         <p className="form-help">
           No account yet? <a href="/register">Create an account</a>
         </p>

@@ -2,7 +2,6 @@
 // API Route Handler
 // Defines all API endpoints with request validation, rate limiting, and error handling
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { config } from '../config/index.js';
 import { applicationController } from '../controller/application.controller.js';
 import { authController } from '../controller/auth.controller.js';
 import { complaintController } from '../controller/complaint.controller.js';
@@ -85,23 +84,6 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
       return;
     }
 
-    // Initiate Google OAuth flow
-    if (request.method === 'GET' && url.pathname === '/api/auth/google') {
-      authController.googleLogin(response);
-      return;
-    }
-
-    // Google OAuth callback with auth code
-    if (request.method === 'GET' && url.pathname === '/api/auth/google/callback') {
-      await authController.googleCallback(
-        request,
-        response,
-        url.searchParams.get('code') || '',
-        url.searchParams.get('state') || ''
-      );
-      return;
-    }
-
     // Reload the authenticated user from the verified HttpOnly session cookie.
     if (request.method === 'GET' && url.pathname === '/api/auth/me') {
       await authController.currentUser(request, response);
@@ -170,14 +152,6 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
     throw new HttpError(404, 'Route not found');
   } catch (error) {
     if (error instanceof HttpError) {
-      if (request.method === 'GET' && url.pathname.startsWith('/api/auth/google')) {
-        const redirectUrl = new URL(config.googleSuccessRedirect);
-        redirectUrl.searchParams.set('googleError', error.message);
-        response.writeHead(302, { Location: redirectUrl.toString() });
-        response.end();
-        return;
-      }
-
       Object.entries(error.headers).forEach(([key, value]) => response.setHeader(key, value));
       
       sendJson(response, error.statusCode, {

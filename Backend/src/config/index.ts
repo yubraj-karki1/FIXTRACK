@@ -44,11 +44,7 @@ export const config = {
   jwtIssuer: process.env.JWT_ISSUER || 'fixtrack-api',
   jwtAudience: process.env.JWT_AUDIENCE || 'fixtrack-web',
   // Sessions expire after eight hours by default, limiting the lifetime of a stolen cookie.
-  jwtExpiresInSeconds: Number(process.env.JWT_EXPIRES_IN_SECONDS || 8 * 60 * 60),
-  googleClientId: process.env.GOOGLE_CLIENT_ID || '',
-  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
-  googleCallbackUrl: process.env.GOOGLE_CALLBACK_URL || 'http://localhost:4000/api/auth/google/callback',
-  googleSuccessRedirect: process.env.GOOGLE_SUCCESS_REDIRECT || 'http://localhost:3000/login'
+  jwtExpiresInSeconds: Number(process.env.JWT_EXPIRES_IN_SECONDS || 8 * 60 * 60)
 };
 
 // Production starts only with deliberate, non-wildcard authentication settings.
@@ -74,8 +70,8 @@ if (Boolean(config.httpsKeyPath) !== Boolean(config.httpsCertPath)) {
   throw new Error('HTTPS_KEY_PATH and HTTPS_CERT_PATH must be configured together');
 }
 
-if (config.isProduction && (!hasOnlyHttpsCorsOrigins || !config.googleCallbackUrl.startsWith('https://') || !config.googleSuccessRedirect.startsWith('https://'))) {
-  throw new Error('Production CORS and Google redirect URLs must use HTTPS');
+if (config.isProduction && !hasOnlyHttpsCorsOrigins) {
+  throw new Error('Production CORS origins must use HTTPS');
 }
 
 if (config.requireHttps && !config.trustProxy && !hasDirectHttps) {

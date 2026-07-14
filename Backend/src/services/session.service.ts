@@ -2,7 +2,7 @@
 // Keeps all JWT creation/verification and cookie attributes in one place so controllers
 // never expose tokens in JSON, URLs, JavaScript-readable cookies, or browser storage.
 
-import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import jwt, { type JwtPayload } from 'jsonwebtoken';
 import { config } from '../config/index.js';
@@ -13,10 +13,7 @@ import type { User } from '../types/index.js';
 // Separate cookies prevent a partially authenticated TOTP user from using full-session routes.
 const sessionCookieName = 'fixtrack_session';
 const pendingTotpCookieName = 'fixtrack_totp_pending';
-// OAuth state is a random one-time value, not a user credential.
-const googleStateCookieName = 'fixtrack_google_state';
 const pendingTotpLifetimeSeconds = 5 * 60;
-const googleStateLifetimeSeconds = 10 * 60;
 // CSRF tokens are signed capabilities, not authentication tokens. They are invalid as soon
 // as the session JWT they reference is replaced or cleared, and never outlive that session.
 
@@ -203,7 +200,6 @@ export const sessionService = {
     // Logout clears every cookie created by the authentication flows.
     clearCookie(response, sessionCookieName);
     clearCookie(response, pendingTotpCookieName, '/api/auth');
-    clearCookie(response, googleStateCookieName, '/api/auth/google');
   },
 
   async getAuthenticatedUser(request: IncomingMessage): Promise<User> {
@@ -274,31 +270,6 @@ export const sessionService = {
 
     if (payload.sub !== userId) {
       throw new HttpError(403, 'This two-factor challenge does not match the login attempt');
-    }
-  },
-
-  createGoogleState(response: ServerResponse): string {
-    // SameSite=Lax keeps this short-lived state cookie available to Google's top-level callback.
-    const state = randomBytes(32).toString('base64url');
-    appendSetCookie(
-      response,
-      serializeCookie(googleStateCookieName, state, {
-        maxAgeSeconds: googleStateLifetimeSeconds,
-        path: '/api/auth/google'
-      })
-    );
-    return state;
-  },
-
-  verifyAndClearGoogleState(request: IncomingMessage, response: ServerResponse, returnedState: string): void {
-    // Clear the one-time state before comparison so it cannot be replayed after a successful callback.
-    const expectedState = getCookieMap(request)[googleStateCookieName] || '';
-    clearCookie(response, googleStateCookieName, '/api/auth/google');
-
-    const expected = Buffer.from(expectedState);
-    const returned = Buffer.from(returnedState);
-    if (!expected.length || expected.length !== returned.length || !timingSafeEqual(expected, returned)) {
-      throw new HttpError(400, 'Invalid Google login state');
     }
   }
 };
