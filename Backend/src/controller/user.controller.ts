@@ -3,7 +3,7 @@
 //Handles user management endpoints: list all users, create new accounts
 
 import type { ServerResponse } from 'node:http';
-import type { CreateUserDto } from '../dtos/user.dto.js';
+import type { CreatePrivilegedUserDto, CreateUserDto } from '../dtos/user.dto.js';
 import { userService } from '../services/user.service.js';
 import { sessionService } from '../services/session.service.js';
 import { sendJson } from './response.js';
@@ -24,6 +24,16 @@ export const userController = {
     sendJson<User>(response, 201, {
       data: user,
       message: 'Account created successfully'
+    });
+  },
+
+  async createPrivileged(response: ServerResponse, body: CreatePrivilegedUserDto): Promise<void> {
+    // Creating another user must not replace the administrator's current session.
+    const user = await userService.createPrivilegedUser(body);
+    response.setHeader('Cache-Control', 'no-store');
+    sendJson<User>(response, 201, {
+      data: user,
+      message: 'Privileged account created successfully'
     });
   }
 };

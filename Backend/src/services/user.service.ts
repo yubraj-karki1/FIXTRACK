@@ -3,14 +3,46 @@
 //and sensitive data filtering
 
 import { userRepository } from '../repositories/user.repository.js';
-import type { CreateUserDto } from '../dtos/user.dto.js';
+import type { CreatePrivilegedUserDto, CreateUserDto } from '../dtos/user.dto.js';
 import { HttpError } from '../errors/http-error.js';
 import { hashPassword, validatePasswordStrength } from './password.service.js';
-import type { User } from '../types/index.js';
+import type { User, UserRole } from '../types/index.js';
 
 function withoutPrivateFields(user: User): User {
   const { password, failedLoginAttempts, lockedUntil, totpSecret, pendingTotpSecret, ...safeUser } = user;
   return safeUser;
+}
+
+async function createUserWithRole(input: CreateUserDto, role: UserRole): Promise<User> {
+  const email = input.email.trim().toLowerCase();
+  if (!email || !input.password) {
+    throw new HttpError(400, 'Email and password are required');
+  }
+
+  const passwordValidation = validatePasswordStrength(input.password, email);
+  if (!passwordValidation.valid) {
+    throw new HttpError(400, passwordValidation.errors.join(' '));
+  }
+
+  if (await userRepository.findByEmail(email)) {
+    throw new HttpError(409, 'An account with this email already exists');
+  }
+
+  const user = await userRepository.create({
+    id: `U-${Date.now().toString().slice(-5)}`,
+    name: input.name.trim() || (role === 'Student' ? 'New Student' : 'New User'),
+    studentId: input.studentId?.trim(),
+    role,
+    email,
+    password: await hashPassword(input.password),
+    phone: input.phone.trim(),
+    building: input.building,
+    room: input.room.trim(),
+    status: 'Active',
+    totpEnabled: false
+  });
+
+  return withoutPrivateFields(user);
 }
 
 export const userService = {
@@ -27,37 +59,12 @@ export const userService = {
   },
 
   async createUser(input: CreateUserDto): Promise<User> {
-    const email = input.email.trim().toLowerCase();
-    if (!email || !input.password) {
-      throw new HttpError(400, 'Email and password are required');
-    }
+    // This is the only service used by public registration. Client-supplied roles are ignored.
+    return createUserWithRole(input, 'Student');
+  },
 
-    // Validate password meets all requirements
-    const passwordValidation = validatePasswordStrength(input.password, email);
-    if (!passwordValidation.valid) {
-      throw new HttpError(400, passwordValidation.errors.join(' '));
-    }
-
-    // Check email not already registered
-    if (await userRepository.findByEmail(email)) {
-      throw new HttpError(409, 'An account with this email already exists');
-    }
-
-    // Create new user with hashed password
-    const user = await userRepository.create({
-      id: `U-${Date.now().toString().slice(-5)}`,
-      name: input.name.trim() || 'New Student',
-      studentId: input.studentId?.trim(),
-      role: input.role,
-      email,
-      password: await hashPassword(input.password),
-      phone: input.phone.trim(),
-      building: input.building,
-      room: input.room.trim(),
-      status: 'Active',
-      totpEnabled: false
-    });
-
-    return withoutPrivateFields(user);
+  async createPrivilegedUser(input: CreatePrivilegedUserDto): Promise<User> {
+    // Route-level session and Administrator checks are required before this method is called.
+    return createUserWithRole(input, input.role);
   }
 };

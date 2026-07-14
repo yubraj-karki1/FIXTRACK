@@ -5,8 +5,12 @@ export interface CreateUserDto {
   email: string;
   password: string;
   phone: string;
-  role: UserRole;
   building: string;
   room: string;
   studentId?: string;
+}
+
+/** Input accepted only by the authenticated administrator user-creation route. */
+export interface CreatePrivilegedUserDto extends CreateUserDto {
+  role: Exclude<UserRole, 'Student'>;
 }

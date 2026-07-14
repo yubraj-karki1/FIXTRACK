@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc --noEmit",
-    "test": "tsx --test src/routes/csrf.integration.test.ts",
+    "test": "tsx --test src/routes/csrf.integration.test.ts src/routes/registration.authorization.test.ts",
     "start": "node dist/index.js"
   },
   "dependencies": {

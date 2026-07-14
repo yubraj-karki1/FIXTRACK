@@ -147,13 +147,6 @@ export const registerValidationSchema: Schema = {
       errorMessage: 'Enter a valid phone number.'
     }
   },
-  role: {
-    in: ['body'],
-    isIn: {
-      options: [['Student', 'Maintenance Staff', 'Administrator']],
-      errorMessage: 'Enter a valid user role.'
-    }
-  },
   building: {
     in: ['body'],
     trim: true,
@@ -172,6 +165,18 @@ export const registerValidationSchema: Schema = {
     matches: {
       options: /^[A-Za-z0-9\s-]+$/,
       errorMessage: 'Room can only contain letters, numbers, spaces, and hyphens.'
+    }
+  }
+};
+
+/** Additional input accepted only after administrator authorization. */
+export const privilegedUserValidationSchema: Schema = {
+  ...registerValidationSchema,
+  role: {
+    in: ['body'],
+    isIn: {
+      options: [['Maintenance Staff', 'Administrator']],
+      errorMessage: 'Role must be Maintenance Staff or Administrator.'
     }
   }
 };

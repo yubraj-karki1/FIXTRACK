@@ -71,7 +71,7 @@ export const api = {
   }): Promise<User> {
     const payload = await request<User>('/api/users', {
       method: 'POST',
-      body: JSON.stringify({ ...input, role: 'Student' })
+      body: JSON.stringify(input)
     });
     // Registration creates a fresh HttpOnly session; /auth/csrf will mint its companion token.
     csrfToken = null;
