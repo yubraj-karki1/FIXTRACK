@@ -1,8 +1,6 @@
 //Dashboard Layout Wrapper
 //Main dashboard layout providing navigation, top bar, and logout confirmation
 //Shown to all authenticated users with role-based menu visibility
-
-
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -37,7 +35,6 @@ export function DashboardLayout({ children }: PropsWithChildren) {
   const visibleNav = nav.filter(([, , , adminOnly]) => !adminOnly || isAdmin);
 
   useEffect(() => {
-    // Do not leave a protected route visible when the session check fails or expires.
     if (authStatus === 'unauthenticated') {
       router.replace(`/login?next=${encodeURIComponent(pathname)}`);
     }
