@@ -130,6 +130,14 @@ svg {
   transform: translateY(-1px);
 }
 
+button:disabled,
+.button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+  box-shadow: none;
+}
+
 .button-primary {
   background: linear-gradient(135deg, var(--brand), var(--brand-2));
   color: white;

@@ -312,70 +312,6 @@ function AuthShell({ title, subtitle, children }: PropsWithChildren<{ title: str
   );
 }
 
-//Login page - Email/password authentication with TOTP support
-//Handles redirects based on user role and requested destination
-
-export function LoginPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const { notify, refreshAuth } = useFixTrack();
-  const [error, setError] = useState('');
-  const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError('');
-    const data = new FormData(event.currentTarget);
-    const email = String(data.get('email-address') || '').toLowerCase();
-    const password = String(data.get('password') || '');
-    const requestedNext = searchParams.get('next');
-
-    try {
-      const login = await api.login(email, password);
-      const loginUser = login.user || email;
-      const target = getLoginTarget(requestedNext, loginUser);
-
-      if (login.requiresTotp && login.userId) {
-        // No full JWT exists yet; the backend has issued a five-minute TOTP challenge cookie.
-        notify('Enter your authenticator code to finish login.');
-        router.push(`/totp?userId=${login.userId}&next=${encodeURIComponent(target)}`);
-        return;
-      }
-
-      // The login response is preserved, but session state is refreshed from the cookie.
-      const authenticatedUser = await refreshAuth();
-      if (!authenticatedUser) {
-        throw new Error('Login succeeded, but the authentication session could not be refreshed.');
-      }
-
-      notify('Logged in successfully.');
-      router.replace(getLoginTarget(requestedNext, authenticatedUser));
-      router.refresh();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Unable to log in.');
-    }
-  };
-  return (
-    <AuthShell title="Welcome back" subtitle="Log in to continue tracking hostel maintenance requests.">
-      <form className="form" onSubmit={handleLogin}>
-        {error && <p className="validation">{error}</p>}
-        <Input label="Email address" type="email" placeholder="student@hostel.edu" required />
-        <Input label="Password" type="password" name="password" placeholder="Enter your password" required />
-        <div className="form-row compact">
-          <label className="check">
-            <input type="checkbox" /> Remember me
-          </label>
-          <span className="muted">Contact an administrator if you cannot access your account.</span>
-        </div>
-        <button className="button button-primary full" type="submit">
-          Login
-        </button>
-        <p className="form-help">
-          No account yet? <Link href="/register">Create an account</Link>
-        </p>
-      </form>
-    </AuthShell>
-  );
-}
-
 // Two-factor authentication verification page
 // Allows users with TOTP enabled to enter their 6-digit authenticator code
  
@@ -847,7 +783,11 @@ export function ComplaintDetailPage({ id }: { id: string }) {
 
 export function StaffDashboardPage() {
   const { complaints, setComplaints, notify } = useFixTrack();
-  const assigned = complaints.filter((complaint) => complaint.status !== 'Closed');
+  // Administrators can also open this page and see every complaint, so "assigned" must be
+  // filtered on staffUserId directly rather than just excluding Closed items — otherwise
+  // unassigned, still-Pending complaints show up here with Start/Resolve controls that can
+  // never legally be used yet.
+  const assigned = complaints.filter((complaint) => complaint.status !== 'Closed' && complaint.staffUserId);
 
   const updateStatus = async (id: string, status: ComplaintStatus) => {
     try {
