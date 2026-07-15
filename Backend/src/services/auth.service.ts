@@ -137,7 +137,13 @@ export const authService = {
       passwordResetAttempts: 0
     });
 
-    notificationService.sendPasswordResetCode(user.email, code);
+    try {
+      await notificationService.sendPasswordResetCode(user.email, code);
+    } catch (error) {
+      // The user-facing response must stay generic (see forgotPassword controller), so a
+      // delivery failure is only surfaced here, not thrown back to the caller.
+      console.error(`Failed to send password reset email to ${user.email}:`, error);
+    }
     void auditService.record(
       'user.password_reset_requested',
       `${user.name} requested a password reset.`,
