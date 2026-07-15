@@ -543,7 +543,7 @@ export function DashboardLayout({ children }: PropsWithChildren) {
   const visibleNav = nav.filter(([label, , , adminOnly]) =>
     (!adminOnly || isAdmin) &&
     (label !== 'Staff' || currentUser.role === 'Maintenance Staff' || isAdmin) &&
-    (label !== 'New Complaint' || currentUser.role !== 'Maintenance Staff') &&
+    (label !== 'New Complaint' || currentUser.role === 'Student') &&
     // Administrators manage complaints and users through the admin pages, not the student views.
     (!isAdmin || (label !== 'Student' && label !== 'My Complaints'))
   );
@@ -815,6 +815,17 @@ export function ComplaintDetailPage({ id }: { id: string }) {
             <Badge label={complaint.status} />
           </div>
           <p>{complaint.description}</p>
+          {currentUser.role !== 'Student' && (
+            <p className="muted">
+              Submitted by{' '}
+              {currentUser.role === 'Administrator' ? (
+                <Link href={`/admin/users/${complaint.studentUserId}`}>{complaint.student}</Link>
+              ) : (
+                complaint.student
+              )}
+              {complaint.studentPhone ? ` • ${complaint.studentPhone}` : ''}
+            </p>
+          )}
           <img className="detail-image" src={complaint.image} alt={`${complaint.title} evidence`} />
         </Panel>
         <Panel title="Status progress">
@@ -884,6 +895,10 @@ export function StaffDashboardPage() {
                 <Link href={`/complaints/${complaint.id}`}>{complaint.title}</Link>
                 <p>
                   {complaint.building}, Room {complaint.room} • {complaint.category}
+                </p>
+                <p className="muted">
+                  Submitted by {complaint.student}
+                  {complaint.studentPhone ? ` • ${complaint.studentPhone}` : ''}
                 </p>
                 <Badge label={complaint.priority} type="priority" /> <Badge label={complaint.status} />
               </div>
@@ -995,7 +1010,7 @@ export function AdminComplaintsPage() {
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>ID</th><th>Title</th><th>Building</th><th>Priority</th><th>Status</th><th>Assign staff</th><th>History</th></tr>
+              <tr><th>ID</th><th>Title</th><th>Student</th><th>Building</th><th>Priority</th><th>Status</th><th>Assign staff</th><th>History</th></tr>
             </thead>
             <tbody>
               {displayedComplaints.map((complaint) => (
@@ -1005,6 +1020,7 @@ export function AdminComplaintsPage() {
                     <Link href={`/complaints/${complaint.id}`}>{complaint.title}</Link>
                     <span>{complaint.category}</span>
                   </td>
+                  <td><Link href={`/admin/users/${complaint.studentUserId}`}>{complaint.student}</Link></td>
                   <td>{complaint.building}</td>
                   <td>
                     <select value={complaint.priority} onChange={(event) => update(complaint.id, { priority: event.target.value as ComplaintPriority })}>
@@ -1105,7 +1121,7 @@ export function UserManagementPage() {
           {filtered.map((user) => (
             <article className="user-card" key={user.id}>
               <span className="avatar large">{initials(user.name)}</span>
-              <h3>{user.name}</h3>
+              <h3><Link href={`/admin/users/${user.id}`}>{user.name}</Link></h3>
               <p>{user.email}</p>
               <Badge label={user.role} />
               <div className="user-controls">
@@ -1121,6 +1137,117 @@ export function UserManagementPage() {
           ))}
         </div>
       </Panel>
+    </AdminOnlyGate>
+  );
+}
+
+export function UserDetailPage({ id }: { id: string }) {
+  const { complaints, currentUser, notify } = useFixTrack();
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError('');
+    api.getUserById(id)
+      .then((fetched) => {
+        if (active) setUser(fetched);
+      })
+      .catch((caught) => {
+        if (active) setError(caught instanceof Error ? caught.message : 'Unable to load this user.');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [id]);
+
+  const updateUser = async (input: { role?: User['role']; status?: User['status'] }) => {
+    if (!user) return;
+    try {
+      const updated = await api.updateUser(user.id, input);
+      setUser(updated);
+      notify('User updated successfully.');
+    } catch (caught) {
+      notify(caught instanceof Error ? caught.message : 'Unable to update user.');
+    }
+  };
+
+  return (
+    <AdminOnlyGate title="User profile" description="Only administrators can view full user profiles.">
+      {loading ? (
+        <EmptyState title="Loading..." text="Fetching user details." compact />
+      ) : !user ? (
+        <EmptyState title="User not found" text={error || 'This user does not exist.'} />
+      ) : (
+        <>
+          <PageHeader title={user.name} description={`${user.role} • ${user.email}`} action={<Link className="button button-secondary" href="/admin/users">Back to users</Link>} />
+          <div className="content-grid">
+            <Panel title="Profile">
+              <div className="profile-card">
+                <span className="avatar profile">{initials(user.name)}</span>
+                <h2>{user.name}</h2>
+                <p>{user.role} • {user.building}, Room {user.room || '-'}</p>
+                {user.studentId && <p className="muted">Student ID: {user.studentId}</p>}
+              </div>
+              <p><strong>Email:</strong> {user.email}</p>
+              <p><strong>Phone:</strong> {user.phone}</p>
+              <p><strong>Status:</strong> <Badge label={user.status} /></p>
+              <p><strong>Two-factor authentication:</strong> {user.totpEnabled ? 'Enabled' : 'Disabled'}</p>
+            </Panel>
+            <Panel title="Manage account">
+              {currentUser.id === user.id ? (
+                <p className="muted">You cannot change your own role or account status.</p>
+              ) : (
+                <div className="user-controls">
+                  <select value={user.role} aria-label={`Change role for ${user.name}`} onChange={(event) => updateUser({ role: event.target.value as User['role'] })}>
+                    <option>Student</option>
+                    <option>Maintenance Staff</option>
+                    <option>Administrator</option>
+                  </select>
+                  <button onClick={() => updateUser({ status: user.status === 'Active' ? 'Inactive' : 'Active' })}>
+                    {user.status === 'Active' ? 'Deactivate' : 'Activate'}
+                  </button>
+                </div>
+              )}
+            </Panel>
+          </div>
+          <Panel title={user.role === 'Maintenance Staff' ? 'Assigned complaints' : 'Submitted complaints'}>
+            {(() => {
+              const related = complaints.filter((complaint) =>
+                user.role === 'Maintenance Staff' ? complaint.staffUserId === user.id : complaint.studentUserId === user.id
+              );
+              return related.length ? (
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr><th>ID</th><th>Title</th><th>Category</th><th>Priority</th><th>Status</th><th>Date</th></tr>
+                    </thead>
+                    <tbody>
+                      {related.map((complaint) => (
+                        <tr key={complaint.id}>
+                          <td>{complaint.id}</td>
+                          <td><Link href={`/complaints/${complaint.id}`}>{complaint.title}</Link></td>
+                          <td>{complaint.category}</td>
+                          <td><Badge label={complaint.priority} type="priority" /></td>
+                          <td><Badge label={complaint.status} /></td>
+                          <td>{complaint.submitted}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <EmptyState title="No complaints yet" text="Nothing to show here yet." compact />
+              );
+            })()}
+          </Panel>
+        </>
+      )}
     </AdminOnlyGate>
   );
 }

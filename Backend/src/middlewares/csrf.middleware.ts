@@ -11,7 +11,9 @@ const safeMethods = new Set(['GET', 'HEAD', 'OPTIONS']);
 const preAuthenticationWrites = new Set([
   '/api/auth/login',
   '/api/auth/totp/verify-login',
-  '/api/users'
+  '/api/users',
+  '/api/auth/forgot-password',
+  '/api/auth/password-reset'
 ]);
 
 export async function assertCsrfProtection(request: IncomingMessage, pathname: string): Promise<void> {

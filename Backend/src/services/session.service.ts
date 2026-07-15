@@ -142,7 +142,17 @@ function verifyToken(token: string | undefined, expectedPurpose: TokenPurpose): 
 }
 
 function withoutPrivateFields(user: User): User {
-  const { password, failedLoginAttempts, lockedUntil, totpSecret, pendingTotpSecret, ...safeUser } = user;
+  const {
+    password,
+    failedLoginAttempts,
+    lockedUntil,
+    totpSecret,
+    pendingTotpSecret,
+    passwordResetCodeHash,
+    passwordResetExpiresAt,
+    passwordResetAttempts,
+    ...safeUser
+  } = user;
   return safeUser;
 }
 

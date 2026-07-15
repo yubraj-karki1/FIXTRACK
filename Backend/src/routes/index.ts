@@ -8,7 +8,7 @@ import { authController } from '../controller/auth.controller.js';
 import { complaintController } from '../controller/complaint.controller.js';
 import { sendJson } from '../controller/response.js';
 import { userController } from '../controller/user.controller.js';
-import type { LoginRequestDto, TotpSetupRequestDto, TotpVerifyRequestDto } from '../dtos/auth.dto.js';
+import type { ForgotPasswordRequestDto, LoginRequestDto, PasswordResetRequestDto, TotpSetupRequestDto, TotpVerifyRequestDto } from '../dtos/auth.dto.js';
 import type { CreateComplaintDto, UpdateComplaintDto } from '../dtos/complaint.dto.js';
 import type { AdminUpdateUserDto, CreatePrivilegedUserDto, CreateUserDto, UpdateProfileDto } from '../dtos/user.dto.js';
 import { HttpError } from '../errors/http-error.js';
@@ -22,7 +22,9 @@ import {
   adminUpdateUserValidationSchema,
   auditQueryValidationSchema,
   createComplaintValidationSchema,
+  forgotPasswordValidationSchema,
   loginValidationSchema,
+  passwordResetValidationSchema,
   privilegedUserValidationSchema,
   registerValidationSchema,
   searchValidationSchema,
@@ -99,6 +101,13 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
     }
 
     const adminUserMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
+    if (request.method === 'GET' && adminUserMatch) {
+      await requireRole(request, 'Administrator');
+      const params = await validateRequest<{ id: string }>({ params: { id: adminUserMatch[1] } }, userIdValidationSchema, 'params');
+      await userController.detail(response, params.id);
+      return;
+    }
+
     if (request.method === 'PATCH' && adminUserMatch) {
       const administrator = await requireRole(request, 'Administrator');
       const params = await validateRequest<{ id: string }>({ params: { id: adminUserMatch[1] } }, userIdValidationSchema, 'params');
@@ -127,6 +136,27 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
         loginValidationSchema
       );
       await authController.login(response, body);
+      return;
+    }
+
+    // Request a password reset code. Always responds the same way regardless of whether
+    // the email is registered, so this endpoint cannot be used to enumerate accounts.
+    if (request.method === 'POST' && url.pathname === '/api/auth/forgot-password') {
+      const body = await validateRequest<ForgotPasswordRequestDto>(
+        { body: await readJsonBody<Record<string, unknown>>(request) },
+        forgotPasswordValidationSchema
+      );
+      await authController.forgotPassword(response, body);
+      return;
+    }
+
+    // Complete a password reset using the code delivered by the forgot-password request.
+    if (request.method === 'POST' && url.pathname === '/api/auth/password-reset') {
+      const body = await validateRequest<PasswordResetRequestDto>(
+        { body: await readJsonBody<Record<string, unknown>>(request) },
+        passwordResetValidationSchema
+      );
+      await authController.resetPassword(response, body);
       return;
     }
 

@@ -95,6 +95,37 @@ export const loginValidationSchema: Schema = {
   }
 };
 
+export const forgotPasswordValidationSchema: Schema = {
+  email: {
+    in: ['body'],
+    trim: true,
+    normalizeEmail: true,
+    isEmail: { errorMessage: 'Enter a valid email address.' }
+  }
+};
+
+export const passwordResetValidationSchema: Schema = {
+  email: {
+    in: ['body'],
+    trim: true,
+    normalizeEmail: true,
+    isEmail: { errorMessage: 'Enter a valid email address.' }
+  },
+  code: {
+    in: ['body'],
+    trim: true,
+    matches: { options: /^\d{6}$/, errorMessage: 'Enter the 6-digit reset code.' }
+  },
+  newPassword: {
+    in: ['body'],
+    isString: { errorMessage: 'A new password is required.' },
+    isLength: {
+      options: { min: 8, max: 20 },
+      errorMessage: 'Password must be between 8 and 20 characters.'
+    }
+  }
+};
+
 export const registerValidationSchema: Schema = {
   name: {
     in: ['body'],

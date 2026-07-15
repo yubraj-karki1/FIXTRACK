@@ -8,7 +8,7 @@ import { authService } from '../services/auth.service.js';
 import { totpService } from '../services/totp.service.js';
 import { sessionService } from '../services/session.service.js';
 import { sendJson } from './response.js';
-import type { LoginRequestDto } from '../dtos/auth.dto.js';
+import type { ForgotPasswordRequestDto, LoginRequestDto, PasswordResetRequestDto } from '../dtos/auth.dto.js';
 import type { AuthLoginResponse, TotpSetupResponse, User } from '../types/index.js';
 
 export const authController = {
@@ -114,6 +114,26 @@ export const authController = {
     const token = await sessionService.createCsrfToken(request);
     response.setHeader('Cache-Control', 'no-store');
     sendJson<{ token: string }>(response, 200, { data: { token } });
+  },
+
+  async forgotPassword(response: ServerResponse, body: ForgotPasswordRequestDto): Promise<void> {
+    await authService.requestPasswordReset(body.email);
+    response.setHeader('Cache-Control', 'no-store');
+    // Always the same response, whether or not the email is registered, so this endpoint
+    // cannot be used to enumerate accounts.
+    sendJson<null>(response, 200, {
+      data: null,
+      message: 'If an account exists for that email, a reset code has been sent.'
+    });
+  },
+
+  async resetPassword(response: ServerResponse, body: PasswordResetRequestDto): Promise<void> {
+    await authService.resetPassword(body.email, body.code, body.newPassword);
+    response.setHeader('Cache-Control', 'no-store');
+    sendJson<null>(response, 200, {
+      data: null,
+      message: 'Password reset successfully. You can now log in.'
+    });
   },
 
   logout(response: ServerResponse): void {

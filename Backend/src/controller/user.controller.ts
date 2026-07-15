@@ -15,6 +15,11 @@ export const userController = {
     sendJson<User[]>(response, 200, { data: await userService.getUsers() });
   },
 
+  async detail(response: ServerResponse, userId: string): Promise<void> {
+    response.setHeader('Cache-Control', 'no-store');
+    sendJson<User>(response, 200, { data: await userService.getUserById(userId) });
+  },
+
   async create(response: ServerResponse, body: CreateUserDto): Promise<void> {
     // The registration service validates and hashes the password before this point.
     const user = await userService.createUser(body);

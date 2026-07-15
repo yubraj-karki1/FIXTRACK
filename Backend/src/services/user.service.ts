@@ -10,7 +10,17 @@ import { hashPassword, validatePasswordStrength } from './password.service.js';
 import type { User, UserRole } from '../types/index.js';
 
 function withoutPrivateFields(user: User): User {
-  const { password, failedLoginAttempts, lockedUntil, totpSecret, pendingTotpSecret, ...safeUser } = user;
+  const {
+    password,
+    failedLoginAttempts,
+    lockedUntil,
+    totpSecret,
+    pendingTotpSecret,
+    passwordResetCodeHash,
+    passwordResetExpiresAt,
+    passwordResetAttempts,
+    ...safeUser
+  } = user;
   return safeUser;
 }
 
@@ -54,6 +64,12 @@ export const userService = {
   async getUsers(): Promise<User[]> {
     const users = await userRepository.findAll();
     return users.map(withoutPrivateFields);
+  },
+
+  async getUserById(userId: string): Promise<User> {
+    const user = await userRepository.findById(userId);
+    if (!user) throw new HttpError(404, 'User not found');
+    return withoutPrivateFields(user);
   },
 
 // Finds user by email address

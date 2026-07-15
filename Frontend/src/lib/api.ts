@@ -84,6 +84,20 @@ export const api = {
     return payload.data;
   },
 
+  async forgotPassword(email: string): Promise<void> {
+    await request<null>('/api/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email })
+    });
+  },
+
+  async resetPassword(email: string, code: string, newPassword: string): Promise<void> {
+    await request<null>('/api/auth/password-reset', {
+      method: 'POST',
+      body: JSON.stringify({ email, code, newPassword })
+    });
+  },
+
   async getCurrentUser(): Promise<User> {
     // This is the only frontend source of truth for the currently authenticated user.
     const payload = await request<User>('/api/auth/me', {
@@ -129,6 +143,11 @@ export const api = {
 
   async getUsers(): Promise<User[]> {
     const payload = await request<User[]>('/api/users', { method: 'GET', cache: 'no-store' });
+    return payload.data;
+  },
+
+  async getUserById(id: string): Promise<User> {
+    const payload = await request<User>(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'GET', cache: 'no-store' });
     return payload.data;
   },
 

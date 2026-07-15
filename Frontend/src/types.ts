@@ -51,6 +51,7 @@ export interface Complaint {
   room: string;
   studentUserId: string;
   student: string;
+  studentPhone?: string;
   staffUserId?: string;
   staff: string;
   submitted: string;

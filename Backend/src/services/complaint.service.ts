@@ -31,16 +31,33 @@ async function findComplaint(id: string): Promise<Complaint> {
   return complaint;
 }
 
+// Joined at read time (rather than stored on the complaint) so it always reflects the
+// student's current phone number, including after they update their profile.
+async function withStudentPhone(complaint: Complaint): Promise<Complaint> {
+  const student = await userRepository.findById(complaint.studentUserId);
+  return { ...complaint, studentPhone: student?.phone || '' };
+}
+
+async function withStudentPhones(complaints: Complaint[]): Promise<Complaint[]> {
+  const uniqueStudentIds = [...new Set(complaints.map((complaint) => complaint.studentUserId))];
+  const students = await Promise.all(uniqueStudentIds.map((id) => userRepository.findById(id)));
+  const phoneById = new Map(
+    students.filter((student): student is User => Boolean(student)).map((student) => [student.id, student.phone])
+  );
+  return complaints.map((complaint) => ({ ...complaint, studentPhone: phoneById.get(complaint.studentUserId) || '' }));
+}
+
 export const complaintService = {
   async getComplaints(user: User): Promise<Complaint[]> {
     const complaints = await complaintRepository.findAll();
-    return complaints.filter((complaint) => canAccessComplaint(user, complaint));
+    const accessible = complaints.filter((complaint) => canAccessComplaint(user, complaint));
+    return withStudentPhones(accessible);
   },
 
   async getComplaintById(id: string, user: User): Promise<Complaint> {
     const complaint = await findComplaint(id);
     assertComplaintAccess(user, complaint);
-    return complaint;
+    return withStudentPhone(complaint);
   },
 
   async createComplaint(input: CreateComplaintDto, user: User): Promise<Complaint> {
@@ -73,7 +90,8 @@ export const complaintService = {
       created.id
     );
 
-    return created;
+    // The submitter is already in scope, so there is no need for the usual lookup join.
+    return { ...created, studentPhone: user.phone };
   },
 
   async updateComplaint(id: string, input: UpdateComplaintDto, user: User): Promise<Complaint> {
@@ -142,6 +160,6 @@ export const complaintService = {
       void auditService.record('complaint.note_added', `${user.name} added a note to complaint ${updated.id}.`, auditActor, updated.id);
     }
 
-    return updated;
+    return withStudentPhone(updated);
   }
 };

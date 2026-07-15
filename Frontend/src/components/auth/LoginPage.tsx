@@ -67,7 +67,7 @@ export function LoginPage() {
           <label className="check">
             <input type="checkbox" /> Remember me
           </label>
-          <span className="muted">Contact an administrator if you cannot access your account.</span>
+          <a href="/forgot-password">Forgot password?</a>
         </div>
         <button
           className="button button-primary full"

@@ -3,15 +3,29 @@
 //Handles login validation, password verification, account locking on failed attempts,
 //and password upgrade for non-hashed passwords.
  
+import { randomInt } from 'node:crypto';
 import { userRepository } from '../repositories/user.repository.js';
 import { HttpError } from '../errors/http-error.js';
 import { auditService } from './audit.service.js';
-import { hashPassword, isPasswordHash, verifyPassword } from './password.service.js';
+import { notificationService } from './notification.service.js';
+import { hashPassword, isPasswordHash, validatePasswordStrength, verifyPassword } from './password.service.js';
 import type { User } from '../types/index.js';
 
 // Security configuration for failed login attempts
 const maxFailedLoginAttempts = 5;
 const lockDurationMs = 15 * 60 * 1000; // 15 minutes in milliseconds
+
+// Security configuration for the forgot-password flow
+const passwordResetCodeLifetimeMs = 15 * 60 * 1000;
+const maxPasswordResetAttempts = 5;
+
+function generateResetCode(): string {
+  return String(randomInt(0, 1_000_000)).padStart(6, '0');
+}
+
+function invalidResetCodeError(): HttpError {
+  return new HttpError(400, 'That reset code is invalid or has expired. Request a new one.');
+}
 
 //Checks if user account is currently locked due to failed login attempts
 //Returns null if no active lock, otherwise returns the lock expiration date
@@ -108,5 +122,74 @@ export const authService = {
       updatedUser.id
     );
     return updatedUser;
+  },
+
+  async requestPasswordReset(email: string): Promise<void> {
+    const user = await userRepository.findByEmail(email);
+    // Behave identically whether or not the account exists, so this endpoint cannot be used
+    // to discover which emails are registered.
+    if (!user || user.status !== 'Active') return;
+
+    const code = generateResetCode();
+    await userRepository.update(user.id, {
+      passwordResetCodeHash: await hashPassword(code),
+      passwordResetExpiresAt: new Date(Date.now() + passwordResetCodeLifetimeMs).toISOString(),
+      passwordResetAttempts: 0
+    });
+
+    notificationService.sendPasswordResetCode(user.email, code);
+    void auditService.record(
+      'user.password_reset_requested',
+      `${user.name} requested a password reset.`,
+      { id: user.id, name: user.name, role: user.role },
+      user.id
+    );
+  },
+
+  async resetPassword(email: string, code: string, newPassword: string): Promise<void> {
+    const user = await userRepository.findByEmail(email);
+    if (!user || !user.passwordResetCodeHash || !user.passwordResetExpiresAt) {
+      throw invalidResetCodeError();
+    }
+
+    const isExpired = new Date(user.passwordResetExpiresAt).getTime() <= Date.now();
+    const attemptsExhausted = (user.passwordResetAttempts || 0) >= maxPasswordResetAttempts;
+    if (isExpired || attemptsExhausted) {
+      // A stale or exhausted code must be discarded so a leaked code can't be retried forever.
+      await userRepository.update(user.id, {
+        passwordResetCodeHash: undefined,
+        passwordResetExpiresAt: undefined,
+        passwordResetAttempts: undefined
+      });
+      throw invalidResetCodeError();
+    }
+
+    const isCodeValid = await verifyPassword(code, user.passwordResetCodeHash);
+    if (!isCodeValid) {
+      await userRepository.update(user.id, { passwordResetAttempts: (user.passwordResetAttempts || 0) + 1 });
+      throw invalidResetCodeError();
+    }
+
+    const passwordValidation = validatePasswordStrength(newPassword, user.email);
+    if (!passwordValidation.valid) {
+      throw new HttpError(400, passwordValidation.errors.join(' '));
+    }
+
+    await userRepository.update(user.id, {
+      password: await hashPassword(newPassword),
+      passwordResetCodeHash: undefined,
+      passwordResetExpiresAt: undefined,
+      passwordResetAttempts: undefined,
+      // A successful reset is proof of ownership, so also clear any unrelated login lockout.
+      failedLoginAttempts: undefined,
+      lockedUntil: undefined
+    });
+
+    void auditService.record(
+      'user.password_reset_completed',
+      `${user.name} reset their password.`,
+      { id: user.id, name: user.name, role: user.role },
+      user.id
+    );
   }
 };

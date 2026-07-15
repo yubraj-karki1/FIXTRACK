@@ -28,6 +28,9 @@ export interface User {
   totpSecret?: string;
   pendingTotpSecret?: string;
   totpEnabled?: boolean;
+  passwordResetCodeHash?: string;
+  passwordResetExpiresAt?: string;
+  passwordResetAttempts?: number;
 }
 
 export interface Complaint {
@@ -40,6 +43,9 @@ export interface Complaint {
   room: string;
   studentUserId: string;
   student: string;
+  // Joined from the student's live profile when a complaint is returned by the API, not
+  // stored on the record itself, so it never goes stale after a phone number change.
+  studentPhone?: string;
   staffUserId?: string;
   staff: string;
   submitted: string;
@@ -66,6 +72,8 @@ export type AuditEventType =
   | 'user.account_locked'
   | 'user.role_changed'
   | 'user.status_changed'
+  | 'user.password_reset_requested'
+  | 'user.password_reset_completed'
   | 'complaint.created'
   | 'complaint.status_changed'
   | 'complaint.assigned'
