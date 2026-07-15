@@ -310,3 +310,11 @@ export const searchValidationSchema: Schema = {
     }
   }
 };
+
+export const auditQueryValidationSchema: Schema = {
+  limit: {
+    in: ['query'],
+    optional: { options: { nullable: true, checkFalsy: true } },
+    isInt: { options: { min: 1, max: 200 }, errorMessage: 'Limit must be between 1 and 200.' }
+  }
+};

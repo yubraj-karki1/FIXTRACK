@@ -3,6 +3,7 @@
 // Defines all API endpoints with request validation, rate limiting, and error handling
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { applicationController } from '../controller/application.controller.js';
+import { auditController } from '../controller/audit.controller.js';
 import { authController } from '../controller/auth.controller.js';
 import { complaintController } from '../controller/complaint.controller.js';
 import { sendJson } from '../controller/response.js';
@@ -19,6 +20,7 @@ import { sessionService } from '../services/session.service.js';
 import {
   complaintIdValidationSchema,
   adminUpdateUserValidationSchema,
+  auditQueryValidationSchema,
   createComplaintValidationSchema,
   loginValidationSchema,
   privilegedUserValidationSchema,
@@ -72,16 +74,27 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
       await userController.list(response);
       return;
     }
+
+    if (request.method === 'GET' && url.pathname === '/api/admin/audit') {
+      await requireRole(request, 'Administrator');
+      const query = await validateRequest<{ limit?: string }>(
+        { query: Object.fromEntries(url.searchParams) },
+        auditQueryValidationSchema,
+        'query'
+      );
+      await auditController.list(response, query.limit);
+      return;
+    }
     // Create a staff or administrator account through an authenticated admin-only boundary.
     // CSRF protection above has already required a valid session for this unsafe request.
     if (request.method === 'POST' && url.pathname === '/api/admin/users') {
-      await requireRole(request, 'Administrator');
+      const administrator = await requireRole(request, 'Administrator');
 
       const body = await validateRequest<CreatePrivilegedUserDto>(
         { body: await readJsonBody<Record<string, unknown>>(request) },
         privilegedUserValidationSchema
       );
-      await userController.createPrivileged(response, body);
+      await userController.createPrivileged(response, body, administrator);
       return;
     }
 
@@ -93,7 +106,7 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
         { body: await readJsonBody<Record<string, unknown>>(request) },
         adminUpdateUserValidationSchema
       );
-      await userController.adminUpdate(response, administrator.id, params.id, body);
+      await userController.adminUpdate(response, administrator, params.id, body);
       return;
     }
 

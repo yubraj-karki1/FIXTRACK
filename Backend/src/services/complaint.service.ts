@@ -3,6 +3,7 @@ import type { CreateComplaintDto, UpdateComplaintDto } from '../dtos/complaint.d
 import { HttpError } from '../errors/http-error.js';
 import { complaintRepository } from '../repositories/complaint.repository.js';
 import { userRepository } from '../repositories/user.repository.js';
+import { auditService } from './audit.service.js';
 import type { Complaint, ComplaintStatus, User } from '../types/index.js';
 
 const defaultEvidenceImage = 'https://images.unsplash.com/photo-1581092795360-fd1ca04f0952?auto=format&fit=crop&w=900&q=80';
@@ -47,7 +48,7 @@ export const complaintService = {
       throw new HttpError(403, 'Maintenance staff cannot submit student complaints');
     }
 
-    return complaintRepository.create({
+    const created = await complaintRepository.create({
       id: `FX-${randomUUID().slice(0, 8).toUpperCase()}`,
       title: input.title,
       category: input.category,
@@ -64,6 +65,15 @@ export const complaintService = {
       notes: [],
       updates: ['Pending']
     });
+
+    void auditService.record(
+      'complaint.created',
+      `${user.name} submitted a complaint: "${created.title}".`,
+      { id: user.id, name: user.name, role: user.role },
+      created.id
+    );
+
+    return created;
   },
 
   async updateComplaint(id: string, input: UpdateComplaintDto, user: User): Promise<Complaint> {
@@ -120,6 +130,18 @@ export const complaintService = {
 
     const updated = await complaintRepository.update(id, updates);
     if (!updated) throw new HttpError(404, 'Complaint not found');
+
+    const auditActor = { id: user.id, name: user.name, role: user.role };
+    if (updates.staffUserId !== undefined) {
+      void auditService.record('complaint.assigned', `${user.name} assigned complaint ${updated.id} to ${updated.staff}.`, auditActor, updated.id);
+    }
+    if (updates.status !== undefined) {
+      void auditService.record('complaint.status_changed', `${user.name} changed complaint ${updated.id} status to ${updated.status}.`, auditActor, updated.id);
+    }
+    if (updates.notes !== undefined) {
+      void auditService.record('complaint.note_added', `${user.name} added a note to complaint ${updated.id}.`, auditActor, updated.id);
+    }
+
     return updated;
   }
 };

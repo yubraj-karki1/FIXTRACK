@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Menu, X, LogOut, LayoutDashboard, ClipboardCheck, BriefcaseBusiness, Plus, UserCog, Archive, Users, Settings, Wrench, Moon, Sun } from 'lucide-react';
+import { Menu, X, LogOut, LayoutDashboard, ClipboardCheck, BriefcaseBusiness, Plus, UserCog, Archive, Users, Settings, Wrench, Moon, Sun, Activity } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useFixTrack } from '@/context/FixTrackContext';
 import { initials } from '@/data/helpers';
@@ -29,6 +29,7 @@ export function DashboardLayout({ children }: PropsWithChildren) {
     ['Admin', '/admin', UserCog, true],
     ['Manage Reports', '/admin/complaints', Archive, true],
     ['Users', '/admin/users', Users, true],
+    ['Activity Log', '/admin/activity', Activity, true],
     ['Profile', '/profile', Settings]
   ];
 

@@ -27,9 +27,9 @@ export const userController = {
     });
   },
 
-  async createPrivileged(response: ServerResponse, body: CreatePrivilegedUserDto): Promise<void> {
+  async createPrivileged(response: ServerResponse, body: CreatePrivilegedUserDto, actor: User): Promise<void> {
     // Creating another user must not replace the administrator's current session.
-    const user = await userService.createPrivilegedUser(body);
+    const user = await userService.createPrivilegedUser(body, actor);
     response.setHeader('Cache-Control', 'no-store');
     sendJson<User>(response, 201, {
       data: user,
@@ -45,10 +45,10 @@ export const userController = {
     });
   },
 
-  async adminUpdate(response: ServerResponse, actorId: string, userId: string, body: AdminUpdateUserDto): Promise<void> {
+  async adminUpdate(response: ServerResponse, actor: User, userId: string, body: AdminUpdateUserDto): Promise<void> {
     response.setHeader('Cache-Control', 'no-store');
     sendJson<User>(response, 200, {
-      data: await userService.adminUpdateUser(actorId, userId, body),
+      data: await userService.adminUpdateUser(actor, userId, body),
       message: 'User updated successfully'
     });
   }

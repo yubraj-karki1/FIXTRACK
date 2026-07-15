@@ -802,6 +802,82 @@ table span {
   overflow-x: auto;
 }
 
+.filter-pills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-pill {
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.filter-pill:hover {
+  border-color: var(--brand);
+}
+
+.filter-pill.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-soft-line);
+  color: var(--accent-soft-text);
+}
+
+.activity-log {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 16px;
+  list-style: none;
+  padding: 0;
+}
+
+.activity-log-row {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.activity-log-row:last-child {
+  border-bottom: none;
+}
+
+.activity-log-icon {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--brand);
+}
+
+.activity-log-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.activity-log-body p {
+  margin: 0;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.activity-log-body small {
+  color: var(--muted);
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

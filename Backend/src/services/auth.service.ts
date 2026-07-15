@@ -5,6 +5,7 @@
  
 import { userRepository } from '../repositories/user.repository.js';
 import { HttpError } from '../errors/http-error.js';
+import { auditService } from './audit.service.js';
 import { hashPassword, isPasswordHash, verifyPassword } from './password.service.js';
 import type { User } from '../types/index.js';
 
@@ -58,6 +59,12 @@ export const authService = {
           failedLoginAttempts,
           lockedUntil: lockedUntil.toISOString()
         });
+        void auditService.record(
+          'user.account_locked',
+          `Account locked for ${user.email} after ${failedLoginAttempts} failed login attempts.`,
+          { id: user.id, name: user.name, role: user.role },
+          user.id
+        );
         throw new HttpError(423, 'Too many failed login attempts. Account is locked for 15 minutes.', {
           'Retry-After': getRetryAfterSeconds(lockedUntil)
         });
@@ -68,6 +75,12 @@ export const authService = {
         failedLoginAttempts,
         lockedUntil: undefined
       });
+      void auditService.record(
+        'user.login_failed',
+        `Failed login attempt for ${user.email}.`,
+        { id: user.id, name: user.name, role: user.role },
+        user.id
+      );
       throw new HttpError(401, `Invalid email or password. ${maxFailedLoginAttempts - failedLoginAttempts} attempts remaining.`);
     }
 
@@ -87,6 +100,13 @@ export const authService = {
       updates.password = await hashPassword(password);
     }
 
-    return (await userRepository.update(user.id, updates)) || user;
+    const updatedUser = (await userRepository.update(user.id, updates)) || user;
+    void auditService.record(
+      'user.login_success',
+      `${updatedUser.name} logged in.`,
+      { id: updatedUser.id, name: updatedUser.name, role: updatedUser.role },
+      updatedUser.id
+    );
+    return updatedUser;
   }
 };

@@ -5,6 +5,7 @@
 import { userRepository } from '../repositories/user.repository.js';
 import type { AdminUpdateUserDto, CreatePrivilegedUserDto, CreateUserDto, UpdateProfileDto } from '../dtos/user.dto.js';
 import { HttpError } from '../errors/http-error.js';
+import { auditService } from './audit.service.js';
 import { hashPassword, validatePasswordStrength } from './password.service.js';
 import type { User, UserRole } from '../types/index.js';
 
@@ -45,6 +46,10 @@ async function createUserWithRole(input: CreateUserDto, role: UserRole): Promise
   return withoutPrivateFields(user);
 }
 
+function roleLabel(role: UserRole): string {
+  return role === 'Maintenance Staff' ? 'a Maintenance Staff' : `an ${role}`;
+}
+
 export const userService = {
   async getUsers(): Promise<User[]> {
     const users = await userRepository.findAll();
@@ -60,12 +65,21 @@ export const userService = {
 
   async createUser(input: CreateUserDto): Promise<User> {
     // This is the only service used by public registration. Client-supplied roles are ignored.
-    return createUserWithRole(input, 'Student');
+    const user = await createUserWithRole(input, 'Student');
+    void auditService.record('user.registered', `${user.name} registered as a Student.`, { id: user.id, name: user.name, role: user.role }, user.id);
+    return user;
   },
 
-  async createPrivilegedUser(input: CreatePrivilegedUserDto): Promise<User> {
+  async createPrivilegedUser(input: CreatePrivilegedUserDto, actor: User): Promise<User> {
     // Route-level session and Administrator checks are required before this method is called.
-    return createUserWithRole(input, input.role);
+    const user = await createUserWithRole(input, input.role);
+    void auditService.record(
+      'user.privileged_created',
+      `${actor.name} created ${roleLabel(user.role)} account for ${user.name}.`,
+      { id: actor.id, name: actor.name, role: actor.role },
+      user.id
+    );
+    return user;
   },
 
   async updateProfile(userId: string, input: UpdateProfileDto): Promise<User> {
@@ -79,8 +93,8 @@ export const userService = {
     return withoutPrivateFields(updated);
   },
 
-  async adminUpdateUser(actorId: string, userId: string, input: AdminUpdateUserDto): Promise<User> {
-    if (actorId === userId && (input.role !== undefined || input.status === 'Inactive')) {
+  async adminUpdateUser(actor: User, userId: string, input: AdminUpdateUserDto): Promise<User> {
+    if (actor.id === userId && (input.role !== undefined || input.status === 'Inactive')) {
       throw new HttpError(400, 'Administrators cannot change their own role or deactivate their own account');
     }
     if (input.role === undefined && input.status === undefined) {
@@ -92,6 +106,20 @@ export const userService = {
       ...(input.status !== undefined ? { status: input.status } : {})
     });
     if (!updated) throw new HttpError(404, 'User not found');
+
+    const auditActor = { id: actor.id, name: actor.name, role: actor.role };
+    if (input.role !== undefined) {
+      void auditService.record('user.role_changed', `${actor.name} changed ${updated.name}'s role to ${input.role}.`, auditActor, updated.id);
+    }
+    if (input.status !== undefined) {
+      void auditService.record(
+        'user.status_changed',
+        `${actor.name} ${input.status === 'Active' ? 'activated' : 'deactivated'} ${updated.name}'s account.`,
+        auditActor,
+        updated.id
+      );
+    }
+
     return withoutPrivateFields(updated);
   }
 };

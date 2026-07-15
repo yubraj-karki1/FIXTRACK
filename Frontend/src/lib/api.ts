@@ -1,5 +1,6 @@
 import type {
   AccountStatus,
+  AuditEvent,
   AuthLoginResponse,
   Complaint,
   ComplaintCategoryName,
@@ -10,17 +11,15 @@ import type {
   UserRole
 } from '@/types';
 
-// Empty uses Next's same-origin API rewrite; a configured value supports a separate backend host.
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
 const csrfProtectedMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
-// This module value exists only for the lifetime of the open tab. It is deliberately never
-// written to localStorage, sessionStorage, a URL, or a browser-readable authentication cookie.
 let csrfToken: string | null = null;
 
 interface ApiResponse<T> {
   data: T;
   message?: string;
+  errors?: { field: string; message: string }[];
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<ApiResponse<T>> {
@@ -47,7 +46,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<ApiResponse
 
   const payload = (await response.json()) as ApiResponse<T>;
   if (!response.ok) {
-    throw new Error(payload.message || 'Request failed');
+    // Field-level messages (e.g. "Description must be between 10 and 2000 characters.")
+    // are far more actionable than the generic "Validation failed" summary alone.
+    const detail = payload.errors?.map((fieldError) => fieldError.message).join(' ');
+    throw new Error(detail || payload.message || 'Request failed');
   }
 
   return payload;
@@ -60,7 +62,6 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ email, password })
     });
-    // A successful login replaces (or begins replacing) the session, so rotate the tab token.
     csrfToken = null;
     return payload.data;
   },
@@ -131,6 +132,12 @@ export const api = {
     return payload.data;
   },
 
+  async getAuditLog(limit?: number): Promise<AuditEvent[]> {
+    const query = limit ? `?limit=${limit}` : '';
+    const payload = await request<AuditEvent[]>(`/api/admin/audit${query}`, { method: 'GET', cache: 'no-store' });
+    return payload.data;
+  },
+
   async createPrivilegedUser(input: {
     name: string;
     email: string;
@@ -174,15 +181,11 @@ export const api = {
   },
 
   clearCsrfToken(): void {
-    // Used after an expired session or successful logout; the server session binding also
-    // prevents an old token from working after any subsequent login.
     csrfToken = null;
   },
 
   async logout(): Promise<void> {
-    // Only the backend can expire an HttpOnly cookie correctly.
     await request<null>('/api/auth/logout', { method: 'POST' });
-    // Remove the in-memory companion token only after the server confirms logout.
     csrfToken = null;
   },
 

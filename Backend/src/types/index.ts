@@ -58,6 +58,30 @@ export interface ComplaintUpdate {
   createdBy: string;
 }
 
+export type AuditEventType =
+  | 'user.registered'
+  | 'user.privileged_created'
+  | 'user.login_success'
+  | 'user.login_failed'
+  | 'user.account_locked'
+  | 'user.role_changed'
+  | 'user.status_changed'
+  | 'complaint.created'
+  | 'complaint.status_changed'
+  | 'complaint.assigned'
+  | 'complaint.note_added';
+
+export interface AuditEvent {
+  id: string;
+  type: AuditEventType;
+  message: string;
+  actorId?: string;
+  actorName: string;
+  actorRole?: UserRole;
+  targetId?: string;
+  createdAt: string;
+}
+
 export interface ApiResponse<T> {
   data: T;
   message?: string;

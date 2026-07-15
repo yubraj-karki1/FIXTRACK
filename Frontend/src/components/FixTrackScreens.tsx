@@ -40,7 +40,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { FormEvent, InputHTMLAttributes, PropsWithChildren, ReactNode, SelectHTMLAttributes } from 'react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Bar,
   BarChart,
@@ -58,6 +58,8 @@ import { aggregate, initials, makeStatusStats } from '@/data/helpers';
 import { buildings, categories, priorities, statuses } from '@/data/fixtrack-data';
 import { api } from '@/lib/api';
 import type {
+  AuditEvent,
+  AuditEventType,
   ChartDatum,
   Complaint,
   ComplaintCategoryName,
@@ -535,12 +537,15 @@ export function DashboardLayout({ children }: PropsWithChildren) {
     ['Admin', '/admin', UserCog, true],
     ['Manage Reports', '/admin/complaints', Archive, true],
     ['Users', '/admin/users', Users, true],
+    ['Activity Log', '/admin/activity', Activity, true],
     ['Profile', '/profile', Settings]
   ];
   const visibleNav = nav.filter(([label, , , adminOnly]) =>
     (!adminOnly || isAdmin) &&
     (label !== 'Staff' || currentUser.role === 'Maintenance Staff' || isAdmin) &&
-    (label !== 'New Complaint' || currentUser.role !== 'Maintenance Staff')
+    (label !== 'New Complaint' || currentUser.role !== 'Maintenance Staff') &&
+    // Administrators manage complaints and users through the admin pages, not the student views.
+    (!isAdmin || (label !== 'Student' && label !== 'My Complaints'))
   );
 
   useEffect(() => {
@@ -698,20 +703,33 @@ export function CreateComplaintPage() {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    const title = String(data.get('title') || '').trim();
+    const description = String(data.get('description') || '').trim();
+    const room = String(data.get('room') || '').trim();
 
-    if (!data.get('title') || !data.get('description') || !data.get('room')) {
-      setError('Please complete the title, description, and room number.');
+    if (title.length < 3) {
+      setError('Title must be at least 3 characters.');
+      return;
+    }
+
+    if (description.length < 10) {
+      setError('Description must be at least 10 characters.');
+      return;
+    }
+
+    if (!/^[A-Za-z0-9\s-]+$/.test(room)) {
+      setError('Room number can only contain letters, numbers, spaces, and hyphens.');
       return;
     }
 
     try {
       const created = await api.createComplaint({
-        title: String(data.get('title')),
+        title,
         category: data.get('category') as ComplaintCategoryName,
         priority: data.get('priority') as ComplaintPriority,
         building: String(data.get('building')),
-        room: String(data.get('room')),
-        description: String(data.get('description'))
+        room,
+        description
       });
       setComplaints([created, ...complaints]);
       notify('Complaint submitted successfully.');
@@ -832,12 +850,15 @@ export function StaffDashboardPage() {
 
   const addNote = async (event: FormEvent<HTMLFormElement>, id: string) => {
     event.preventDefault();
-    const note = String(new FormData(event.currentTarget).get('note') || '').trim();
+    const form = event.currentTarget;
+    const note = String(new FormData(form).get('note') || '').trim();
     if (!note) return;
     try {
       const updated = await api.updateComplaint(id, { note });
       setComplaints(complaints.map((complaint) => complaint.id === id ? updated : complaint));
-      event.currentTarget.reset();
+      // The SyntheticEvent's currentTarget is nulled out once the handler yields past this await,
+      // so the form element must be captured beforehand rather than read off `event` again.
+      form.reset();
       notify(`Note added to ${id}.`);
     } catch (caught) {
       notify(caught instanceof Error ? caught.message : 'Unable to add note.');
@@ -884,12 +905,28 @@ export function StaffDashboardPage() {
 export function AdminDashboardPage() {
   const { complaints } = useFixTrack();
   const [userCount, setUserCount] = useState(0);
+  const [staffUsers, setStaffUsers] = useState<User[]>([]);
   const byCategory = aggregate(complaints, 'category');
   const byStatus = aggregate(complaints, 'status');
   const byBuilding = aggregate(complaints, 'building');
+  const staffWorkload = [
+    ...staffUsers.map((staff) => ({
+      name: staff.name,
+      count: complaints.filter((complaint) => complaint.staffUserId === staff.id).length
+    })),
+    { name: 'Unassigned', count: complaints.filter((complaint) => !complaint.staffUserId).length }
+  ];
 
   useEffect(() => {
-    void api.getUsers().then((items) => setUserCount(items.length)).catch(() => setUserCount(0));
+    void api.getUsers()
+      .then((items) => {
+        setUserCount(items.length);
+        setStaffUsers(items.filter((user) => user.role === 'Maintenance Staff'));
+      })
+      .catch(() => {
+        setUserCount(0);
+        setStaffUsers([]);
+      });
   }, []);
 
   return (
@@ -910,7 +947,7 @@ export function AdminDashboardPage() {
       </div>
       <div className="content-grid three">
         <Panel title="Recent activity">{complaints.slice(0, 4).map((complaint) => <ActivityItem key={complaint.id} complaint={complaint} />)}</Panel>
-        <Panel title="Staff workload overview">{['Ramesh Karki', 'Mina Gurung', 'Unassigned'].map((staff) => <Workload key={staff} name={staff} count={complaints.filter((complaint) => complaint.staff === staff).length} />)}</Panel>
+        <Panel title="Staff workload overview">{staffWorkload.map((staff) => <Workload key={staff.name} name={staff.name} count={staff.count} />)}</Panel>
         <Panel title="Building-wise summary">{byBuilding.map((building) => <Workload key={building.name} name={building.name} count={building.value} />)}</Panel>
       </div>
     </AdminOnlyGate>
@@ -1021,7 +1058,8 @@ export function UserManagementPage() {
 
   const createPrivilegedUser = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const data = new FormData(form);
     try {
       const created = await api.createPrivilegedUser({
         name: String(data.get('name') || ''),
@@ -1033,7 +1071,8 @@ export function UserManagementPage() {
         room: String(data.get('room') || '')
       });
       setManagedUsers((items) => [...items, created]);
-      event.currentTarget.reset();
+      // Captured above: `event.currentTarget` is nulled out by the time this await resolves.
+      form.reset();
       notify('Privileged user created successfully.');
     } catch (caught) {
       notify(caught instanceof Error ? caught.message : 'Unable to create user.');
@@ -1081,6 +1120,120 @@ export function UserManagementPage() {
             </article>
           ))}
         </div>
+      </Panel>
+    </AdminOnlyGate>
+  );
+}
+
+const activityFilters = ['All', 'Logins', 'Registrations', 'Complaints', 'Account changes'] as const;
+type ActivityFilter = (typeof activityFilters)[number];
+
+const activityFilterTypes: Record<Exclude<ActivityFilter, 'All'>, AuditEventType[]> = {
+  Logins: ['user.login_success', 'user.login_failed', 'user.account_locked'],
+  Registrations: ['user.registered', 'user.privileged_created'],
+  Complaints: ['complaint.created', 'complaint.status_changed', 'complaint.assigned', 'complaint.note_added'],
+  'Account changes': ['user.role_changed', 'user.status_changed']
+};
+
+const activityIcons: Record<AuditEventType, LucideIcon> = {
+  'user.registered': Users,
+  'user.privileged_created': UserCog,
+  'user.login_success': LogIn,
+  'user.login_failed': AlertTriangle,
+  'user.account_locked': AlertTriangle,
+  'user.role_changed': UserCog,
+  'user.status_changed': UserCog,
+  'complaint.created': ClipboardCheck,
+  'complaint.status_changed': Activity,
+  'complaint.assigned': BriefcaseBusiness,
+  'complaint.note_added': FileText
+};
+
+function formatEventTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+export function ActivityLogPage() {
+  const { notify } = useFixTrack();
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<ActivityFilter>('All');
+  const [query, setQuery] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const items = await api.getAuditLog(200);
+      setEvents(items);
+    } catch (caught) {
+      notify(caught instanceof Error ? caught.message : 'Unable to load the activity log.');
+    } finally {
+      setLoading(false);
+    }
+  }, [notify]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const filtered = events.filter((event) => {
+    const matchesFilter = filter === 'All' || activityFilterTypes[filter].includes(event.type);
+    const matchesQuery = `${event.message} ${event.actorName}`.toLowerCase().includes(query.toLowerCase());
+    return matchesFilter && matchesQuery;
+  });
+
+  return (
+    <AdminOnlyGate title="Activity log" description="Only administrators can review platform-wide activity.">
+      <PageHeader
+        title="Activity log"
+        description="A live trail of logins, registrations, complaint actions, and account changes across FixTrack."
+        action={
+          <button className="button button-secondary" type="button" onClick={() => void load()} disabled={loading}>
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </button>
+        }
+      />
+      <Panel>
+        <div className="table-tools">
+          <div className="topbar-search">
+            <Search />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search activity..." />
+          </div>
+          <div className="filter-pills">
+            {activityFilters.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className={`filter-pill ${filter === option ? 'active' : ''}`}
+                onClick={() => setFilter(option)}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </div>
+        {filtered.length ? (
+          <ul className="activity-log">
+            {filtered.map((event) => {
+              const Icon = activityIcons[event.type] || Activity;
+              return (
+                <li key={event.id} className="activity-log-row">
+                  <span className="activity-log-icon">
+                    <Icon />
+                  </span>
+                  <div className="activity-log-body">
+                    <p>{event.message}</p>
+                    <small>{formatEventTime(event.createdAt)}</small>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <EmptyState title={loading ? 'Loading activity...' : 'No activity found'} text="Try a different search or filter." />
+        )}
       </Panel>
     </AdminOnlyGate>
   );
