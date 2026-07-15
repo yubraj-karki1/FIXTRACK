@@ -788,6 +788,9 @@ export function StaffDashboardPage() {
   // unassigned, still-Pending complaints show up here with Start/Resolve controls that can
   // never legally be used yet.
   const assigned = complaints.filter((complaint) => complaint.status !== 'Closed' && complaint.staffUserId);
+  // Visible to every staff member (read-only) so they can see what's waiting for an
+  // administrator to assign; only an administrator can actually assign it to someone.
+  const pendingQueue = complaints.filter((complaint) => complaint.status === 'Pending');
 
   const updateStatus = async (id: string, status: ComplaintStatus) => {
     try {
@@ -851,6 +854,30 @@ export function StaffDashboardPage() {
             </form>
           ))}
         </div>
+      </Panel>
+      <Panel title="Pending complaints (unassigned)">
+        {pendingQueue.length === 0 ? (
+          <p className="muted">No unassigned complaints are waiting right now.</p>
+        ) : (
+          <div className="work-list">
+            {pendingQueue.map((complaint) => (
+              <div className="work-card" key={complaint.id}>
+                <div>
+                  <Link href={`/complaints/${complaint.id}`}>{complaint.title}</Link>
+                  <p>
+                    {complaint.building}, Room {complaint.room} • {complaint.category}
+                  </p>
+                  <p className="muted">
+                    Submitted by {complaint.student}
+                    {complaint.studentPhone ? ` • ${complaint.studentPhone}` : ''}
+                  </p>
+                  <Badge label={complaint.priority} type="priority" /> <Badge label={complaint.status} />
+                </div>
+                <p className="muted">Waiting for an administrator to assign this to a staff member.</p>
+              </div>
+            ))}
+          </div>
+        )}
       </Panel>
     </>
   );

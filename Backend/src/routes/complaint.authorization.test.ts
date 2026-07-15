@@ -25,6 +25,12 @@ const fixtures: Complaint[] = [
     building: 'Cedar Block', room: '118', studentUserId: 'U-1002', student: 'Nisha Thapa',
     staff: 'Unassigned', submitted: '2026-07-14', description: 'Another sufficiently detailed complaint.',
     image: 'https://example.com/evidence.jpg', notes: [], updates: ['Pending']
+  },
+  {
+    id: 'FX-AUTH-3', title: 'Repair assigned to another technician', category: 'Electricity', priority: 'Medium', status: 'Assigned',
+    building: 'North Wing', room: '9', studentUserId: 'U-1002', student: 'Nisha Thapa',
+    staffUserId: 'U-2002', staff: 'Mina Gurung', submitted: '2026-07-14', description: 'Yet another sufficiently detailed complaint.',
+    image: 'https://example.com/evidence.jpg', notes: [], updates: ['Pending', 'Assigned']
   }
 ];
 
@@ -98,13 +104,21 @@ test('complaint lists are filtered by student ownership, staff assignment, and a
   const admin = await (await get('/api/complaints', 'U-3001')).json() as { data: Complaint[] };
 
   assert.deepEqual(student.data.map((item) => item.id), ['FX-AUTH-1']);
-  assert.deepEqual(staff.data.map((item) => item.id), ['FX-AUTH-1']);
-  assert.deepEqual(admin.data.map((item) => item.id), ['FX-AUTH-1', 'FX-AUTH-2']);
+  // Staff see their own assigned work plus the unassigned queue, but not another
+  // technician's assigned complaint.
+  assert.deepEqual(staff.data.map((item) => item.id), ['FX-AUTH-1', 'FX-AUTH-2']);
+  assert.deepEqual(admin.data.map((item) => item.id), ['FX-AUTH-1', 'FX-AUTH-2', 'FX-AUTH-3']);
 });
 
 test('inaccessible complaint identifiers return 404 instead of leaking records', async () => {
   assert.equal((await get('/api/complaints/FX-AUTH-2', 'U-1001')).status, 404);
-  assert.equal((await get('/api/complaints/FX-AUTH-2', 'U-2001')).status, 404);
+  assert.equal((await get('/api/complaints/FX-AUTH-3', 'U-2001')).status, 404);
+});
+
+test('maintenance staff can view the unassigned queue but not act on it', async () => {
+  const view = await get('/api/complaints/FX-AUTH-2', 'U-2001');
+  assert.equal(view.status, 200);
+  assert.equal((await write('/api/complaints/FX-AUTH-2', 'U-2001', 'PATCH', { note: 'Taking a look.' })).status, 403);
 });
 
 test('students create complaints owned by their authenticated identity and can cancel only pending complaints', async () => {
@@ -131,7 +145,7 @@ test('maintenance staff can update only assigned work through valid status trans
 
   const resolve = await write('/api/complaints/FX-AUTH-1', 'U-2001', 'PATCH', { status: 'Resolved' });
   assert.equal(resolve.status, 200);
-  assert.equal((await write('/api/complaints/FX-AUTH-2', 'U-2001', 'PATCH', { status: 'In Progress' })).status, 404);
+  assert.equal((await write('/api/complaints/FX-AUTH-2', 'U-2001', 'PATCH', { status: 'In Progress' })).status, 403);
   assert.equal((await write('/api/complaints', 'U-2001', 'POST', {
     title: 'Forbidden staff complaint', category: 'Other', priority: 'Low', building: 'Maple Hall', room: '1',
     description: 'Staff must not create a student complaint.'

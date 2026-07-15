@@ -10,7 +10,9 @@ const defaultEvidenceImage = 'https://images.unsplash.com/photo-1581092795360-fd
 
 function canAccessComplaint(user: User, complaint: Complaint): boolean {
   if (user.role === 'Administrator') return true;
-  if (user.role === 'Maintenance Staff') return complaint.staffUserId === user.id;
+  // Staff can see their own assigned work plus the unassigned queue (read-only, until an
+  // administrator assigns it), but not complaints already assigned to a different staff member.
+  if (user.role === 'Maintenance Staff') return complaint.staffUserId === user.id || complaint.status === 'Pending';
   return complaint.studentUserId === user.id;
 }
 
@@ -108,6 +110,11 @@ export const complaintService = {
       updates.updates = addStatusHistory(complaint, 'Closed');
       updates.notes = [...complaint.notes, 'Cancelled by the student before assignment.'];
     } else if (user.role === 'Maintenance Staff') {
+      // Viewing the unassigned queue is allowed, but acting on it is not: only an
+      // administrator can assign a complaint to a staff member.
+      if (complaint.staffUserId !== user.id) {
+        throw new HttpError(403, 'This complaint is not assigned to you yet.');
+      }
       if (input.status) {
         const validTransition =
           (complaint.status === 'Assigned' && input.status === 'In Progress') ||
