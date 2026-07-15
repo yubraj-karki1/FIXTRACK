@@ -9,7 +9,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 const securityHeaders = [
   {
     key: 'Content-Security-Policy',
-    value: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://images.unsplash.com; font-src 'self' data:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+    value: `default-src 'self'; script-src 'self' 'unsafe-inline'${isProduction ? '' : " 'unsafe-eval'"}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://images.unsplash.com; font-src 'self' data:; connect-src 'self' https:${isProduction ? '' : ' ws:'}; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'`
   },
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
