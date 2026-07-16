@@ -33,6 +33,12 @@ export function LoginPage() {
       const loginUser = login.user || email;
       const target = getLoginTarget(requestedNext, loginUser);
 
+      if (login.requiresPasswordChange && login.userId) {
+        notify('Your password has expired. Please choose a new one.');
+        router.push(`/update-password?userId=${login.userId}&next=${encodeURIComponent(target)}`);
+        return;
+      }
+
       if (login.requiresTotp && login.userId) {
         notify('Enter your authenticator code to finish login.');
         router.push(`/totp?userId=${login.userId}&next=${encodeURIComponent(target)}`);

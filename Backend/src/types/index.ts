@@ -112,5 +112,6 @@ export interface TotpSetupResponse {
 export interface AuthLoginResponse {
   user: User | null;
   requiresTotp: boolean;
+  requiresPasswordChange?: boolean;
   userId?: string;
 }

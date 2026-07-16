@@ -21,3 +21,8 @@ export interface PasswordResetRequestDto {
   code: string;
   newPassword: string;
 }
+
+export interface PasswordExpiredChangeRequestDto {
+  userId: string;
+  newPassword: string;
+}

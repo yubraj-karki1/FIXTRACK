@@ -5,4 +5,5 @@
 
 export { LoginPage } from './LoginPage';
 export { ForgotPasswordPage } from './ForgotPasswordPage';
+export { UpdateExpiredPasswordPage } from './UpdateExpiredPasswordPage';
 export { PasswordStrengthFeedback } from './PasswordStrengthFeedback';

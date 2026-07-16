@@ -126,6 +126,23 @@ export const passwordResetValidationSchema: Schema = {
   }
 };
 
+export const passwordExpiredChangeValidationSchema: Schema = {
+  userId: {
+    in: ['body'],
+    trim: true,
+    isLength: { options: { min: 2, max: 40 }, errorMessage: 'User ID must be between 2 and 40 characters.' },
+    matches: { options: /^[A-Za-z0-9-]+$/, errorMessage: 'User ID contains invalid characters.' }
+  },
+  newPassword: {
+    in: ['body'],
+    isString: { errorMessage: 'A new password is required.' },
+    isLength: {
+      options: { min: 8, max: 20 },
+      errorMessage: 'Password must be between 8 and 20 characters.'
+    }
+  }
+};
+
 export const registerValidationSchema: Schema = {
   name: {
     in: ['body'],

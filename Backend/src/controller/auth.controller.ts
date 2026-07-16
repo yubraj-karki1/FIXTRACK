@@ -5,8 +5,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { HttpError } from '../errors/http-error.js';
 import { authService } from '../services/auth.service.js';
+import { isPasswordExpired } from '../services/password.service.js';
 import { totpService } from '../services/totp.service.js';
 import { sessionService } from '../services/session.service.js';
+import { userService } from '../services/user.service.js';
 import { sendJson } from './response.js';
 import type { ForgotPasswordRequestDto, LoginRequestDto, PasswordResetRequestDto } from '../dtos/auth.dto.js';
 import type { AuthLoginResponse, TotpSetupResponse, User } from '../types/index.js';
@@ -18,6 +20,18 @@ export const authController = {
    
   async login(response: ServerResponse, credentials: LoginRequestDto): Promise<void> {
     const user = await authService.validateLogin(credentials.email, credentials.password);
+    
+// Check if the user's password has expired and requires a change
+    if (isPasswordExpired(user.passwordChangedAt)) {
+      sessionService.issuePendingPasswordChange(response, user.id);
+      response.setHeader('Cache-Control', 'no-store');
+      sendJson<AuthLoginResponse>(response, 200, {
+        data: { user: null, requiresTotp: false, requiresPasswordChange: true, userId: user.id },
+        message: 'Your password has expired. Choose a new password to continue.'
+      });
+      return;
+    }
+
     const loginResponse = totpService.getLoginResponse(user);
 
     if (loginResponse.requiresTotp) {
@@ -133,6 +147,19 @@ export const authController = {
     sendJson<null>(response, 200, {
       data: null,
       message: 'Password reset successfully. You can now log in.'
+    });
+  },
+
+  async changeExpiredPassword(request: IncomingMessage, response: ServerResponse, userId: string, newPassword: string): Promise<void> {
+    // The pending-password cookie is the only proof of the earlier successful login.
+    sessionService.assertPendingPasswordUser(request, userId);
+    await authService.changePasswordAfterExpiry(userId, newPassword);
+    const user = await userService.getUserById(userId);
+    sessionService.issueSession(response, user.id);
+    response.setHeader('Cache-Control', 'no-store');
+    sendJson<User>(response, 200, {
+      data: user,
+      message: 'Password updated. You are now logged in.'
     });
   },
 

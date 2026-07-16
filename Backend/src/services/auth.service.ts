@@ -11,7 +11,6 @@ import { notificationService } from './notification.service.js';
 import {
   appendPasswordHistory,
   hashPassword,
-  isPasswordExpired,
   isPasswordHash,
   passwordHistoryLimit,
   validatePasswordStrength,
@@ -35,9 +34,6 @@ function generateResetCode(): string {
 function invalidResetCodeError(): HttpError {
   return new HttpError(400, 'That reset code is invalid or has expired. Request a new one.');
 }
-
-//Checks if user account is currently locked due to failed login attempts
-//Returns null if no active lock, otherwise returns the lock expiration date
 
 function getActiveLock(user: User): Date | null {
   if (!user.lockedUntil) return null;
@@ -68,8 +64,6 @@ export const authService = {
         'Retry-After': getRetryAfterSeconds(activeLock)
       });
     }
-
-    // Track failed login attempts and lock account if threshold exceeded
     const wasLockExpired = Boolean(user.lockedUntil);
     const isPasswordValid = await verifyPassword(password, user.password);
     if (!isPasswordValid) {
@@ -112,10 +106,8 @@ export const authService = {
       throw new HttpError(403, 'This account is inactive');
     }
 
-    // A correct but stale password blocks login until it's replaced via the forgot-password flow.
-    if (isPasswordExpired(user.passwordChangedAt)) {
-      throw new HttpError(403, 'Your password has expired. Please reset it to continue.');
-    }
+    // Password expiry is gated by the controller after this returns (issuing a pending-change
+    // challenge instead of a full session), the same way TOTP is layered on top of a valid password.
 
     // Clear failed login attempts and lock on successful login
     const updates: Partial<User> = {
@@ -194,7 +186,8 @@ export const authService = {
     }
 
     if (await wasPasswordUsedBefore(newPassword, user.password, user.passwordHistory)) {
-      throw new HttpError(400, `You cannot reuse a recent password. Choose one you haven't used in your last ${passwordHistoryLimit} passwords.`);
+      throw new HttpError(400, `You cannot reuse a recent password. 
+      Choose one you haven't used in your last ${passwordHistoryLimit} passwords.`);
     }
 
     await userRepository.update(user.id, {
@@ -212,6 +205,40 @@ export const authService = {
     void auditService.record(
       'user.password_reset_completed',
       `${user.name} reset their password.`,
+      { id: user.id, name: user.name, role: user.role },
+      user.id
+    );
+  },
+
+  //Replaces a password that failed the expiry check at login. Called only after the
+  //controller has verified the caller holds the short-lived pending-password-change cookie.
+
+  async changePasswordAfterExpiry(userId: string, newPassword: string): Promise<void> {
+    const user = await userRepository.findById(userId);
+    if (!user) {
+      throw new HttpError(404, 'User not found');
+    }
+
+    const passwordValidation = validatePasswordStrength(newPassword, user.email);
+    if (!passwordValidation.valid) {
+      throw new HttpError(400, passwordValidation.errors.join(' '));
+    }
+
+    if (await wasPasswordUsedBefore(newPassword, user.password, user.passwordHistory)) {
+      throw new HttpError(400, `You cannot reuse a recent password. Choose one you haven't used in your last ${passwordHistoryLimit} passwords.`);
+    }
+
+    await userRepository.update(user.id, {
+      password: await hashPassword(newPassword),
+      passwordChangedAt: new Date().toISOString(),
+      passwordHistory: appendPasswordHistory(user.password, user.passwordHistory),
+      failedLoginAttempts: undefined,
+      lockedUntil: undefined
+    });
+
+    void auditService.record(
+      'user.password_reset_completed',
+      `${user.name} updated an expired password.`,
       { id: user.id, name: user.name, role: user.role },
       user.id
     );

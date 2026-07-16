@@ -14,19 +14,17 @@ import type { User } from '../types/index.js';
 const sessionCookieName = 'fixtrack_session';
 const pendingTotpCookieName = 'fixtrack_totp_pending';
 const pendingTotpLifetimeSeconds = 5 * 60;
-// CSRF tokens are signed capabilities, not authentication tokens. They are invalid as soon
-// as the session JWT they reference is replaced or cleared, and never outlive that session.
+const pendingPasswordCookieName = 'fixtrack_password_pending';
+const pendingPasswordLifetimeSeconds = 10 * 60;
 
-type TokenPurpose = 'session' | 'totp-pending' | 'csrf';
+type TokenPurpose = 'session' | 'totp-pending' | 'password-pending' | 'csrf';
 
 interface FixTrackJwtPayload extends JwtPayload {
   purpose: TokenPurpose;
-  // A CSRF token is bound to the unique JWT id of one authenticated session.
   sessionId?: string;
 }
 
 function getJwtSecret(): string {
-  // A short/default secret makes offline JWT guessing practical, so fail closed in production.
   if (Buffer.byteLength(config.jwtSecret, 'utf8') < 32) {
     throw new HttpError(500, 'JWT_SECRET must contain at least 32 characters');
   }
@@ -180,8 +178,9 @@ export const sessionService = {
   issueSession(response: ServerResponse, userId: string): void {
     const lifetimeSeconds = getSessionLifetimeSeconds();
     const token = signToken(userId, 'session', lifetimeSeconds);
-    // A completed sign-in replaces any pending 2FA challenge.
+    // A completed sign-in replaces any pending 2FA or forced-password-change challenge.
     clearCookie(response, pendingTotpCookieName, '/api/auth');
+    clearCookie(response, pendingPasswordCookieName, '/api/auth');
     appendSetCookie(
       response,
       serializeCookie(sessionCookieName, token, { maxAgeSeconds: lifetimeSeconds })
@@ -201,6 +200,19 @@ export const sessionService = {
     );
   },
 
+  issuePendingPasswordChange(response: ServerResponse, userId: string): void {
+    const token = signToken(userId, 'password-pending', pendingPasswordLifetimeSeconds);
+    // A user with an expired password must not retain an authenticated session either.
+    clearCookie(response, sessionCookieName);
+    appendSetCookie(
+      response,
+      serializeCookie(pendingPasswordCookieName, token, {
+        maxAgeSeconds: pendingPasswordLifetimeSeconds,
+        path: '/api/auth'
+      })
+    );
+  },
+
   clearSession(response: ServerResponse): void {
     // Used by /auth/me so an expired session does not cancel a still-valid TOTP challenge.
     clearCookie(response, sessionCookieName);
@@ -210,6 +222,7 @@ export const sessionService = {
     // Logout clears every cookie created by the authentication flows.
     clearCookie(response, sessionCookieName);
     clearCookie(response, pendingTotpCookieName, '/api/auth');
+    clearCookie(response, pendingPasswordCookieName, '/api/auth');
   },
 
   async getAuthenticatedUser(request: IncomingMessage): Promise<User> {
@@ -280,6 +293,29 @@ export const sessionService = {
 
     if (payload.sub !== userId) {
       throw new HttpError(403, 'This two-factor challenge does not match the login attempt');
+    }
+  },
+
+  assertPendingPasswordUser(request: IncomingMessage, userId: string): void {
+    // A new password is accepted only for the user who just proved the old one at login.
+    const cookies = getCookieMap(request);
+    const pendingToken = cookies[pendingPasswordCookieName];
+    if (!pendingToken) {
+      throw new HttpError(401, 'Password update session expired. Please sign in again.');
+    }
+
+    let payload: FixTrackJwtPayload;
+    try {
+      payload = verifyToken(pendingToken, 'password-pending');
+    } catch (error) {
+      if (error instanceof HttpError) {
+        throw new HttpError(401, 'Password update session expired. Please sign in again.');
+      }
+      throw error;
+    }
+
+    if (payload.sub !== userId) {
+      throw new HttpError(403, 'This password update does not match the login attempt');
     }
   }
 };

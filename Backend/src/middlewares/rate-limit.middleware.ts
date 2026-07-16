@@ -22,6 +22,7 @@ const sensitiveRouteLimits: Record<string, RateLimitRule> = {
   'POST /api/users': { maxRequests: 5, windowMs: 15 * minute },
   'POST /api/auth/forgot-password': { maxRequests: 5, windowMs: 15 * minute },
   'POST /api/auth/password-reset': { maxRequests: 8, windowMs: 15 * minute },
+  'POST /api/auth/password/expired-change': { maxRequests: 8, windowMs: 15 * minute },
   'POST /api/auth/email/verify': { maxRequests: 8, windowMs: 15 * minute },
   'POST /api/auth/totp/verify-login': { maxRequests: 8, windowMs: 15 * minute },
   'POST /api/auth/totp/verify-setup': { maxRequests: 8, windowMs: 15 * minute }

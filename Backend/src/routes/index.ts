@@ -8,7 +8,14 @@ import { authController } from '../controller/auth.controller.js';
 import { complaintController } from '../controller/complaint.controller.js';
 import { sendJson } from '../controller/response.js';
 import { userController } from '../controller/user.controller.js';
-import type { ForgotPasswordRequestDto, LoginRequestDto, PasswordResetRequestDto, TotpSetupRequestDto, TotpVerifyRequestDto } from '../dtos/auth.dto.js';
+import type {
+  ForgotPasswordRequestDto,
+  LoginRequestDto,
+  PasswordExpiredChangeRequestDto,
+  PasswordResetRequestDto,
+  TotpSetupRequestDto,
+  TotpVerifyRequestDto
+} from '../dtos/auth.dto.js';
 import type { CreateComplaintDto, UpdateComplaintDto } from '../dtos/complaint.dto.js';
 import type { AdminUpdateUserDto, CreatePrivilegedUserDto, CreateUserDto, UpdateProfileDto } from '../dtos/user.dto.js';
 import { HttpError } from '../errors/http-error.js';
@@ -24,6 +31,7 @@ import {
   createComplaintValidationSchema,
   forgotPasswordValidationSchema,
   loginValidationSchema,
+  passwordExpiredChangeValidationSchema,
   passwordResetValidationSchema,
   privilegedUserValidationSchema,
   registerValidationSchema,
@@ -157,6 +165,17 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
         passwordResetValidationSchema
       );
       await authController.resetPassword(response, body);
+      return;
+    }
+
+    // Complete a forced password change after the expiry gate at login. Authenticated by the
+    // short-lived pending-password cookie rather than a CSRF token, since no full session exists yet.
+    if (request.method === 'POST' && url.pathname === '/api/auth/password/expired-change') {
+      const body = await validateRequest<PasswordExpiredChangeRequestDto>(
+        { body: await readJsonBody<Record<string, unknown>>(request) },
+        passwordExpiredChangeValidationSchema
+      );
+      await authController.changeExpiredPassword(request, response, body.userId, body.newPassword);
       return;
     }
 

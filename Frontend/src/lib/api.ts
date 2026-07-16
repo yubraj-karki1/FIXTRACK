@@ -98,6 +98,16 @@ export const api = {
     });
   },
 
+  async changeExpiredPassword(userId: string, newPassword: string): Promise<User> {
+    // Replaces the pending-password-change cookie with the final HttpOnly session cookie.
+    const payload = await request<User>('/api/auth/password/expired-change', {
+      method: 'POST',
+      body: JSON.stringify({ userId, newPassword })
+    });
+    csrfToken = null;
+    return payload.data;
+  },
+
   async getCurrentUser(): Promise<User> {
     // This is the only frontend source of truth for the currently authenticated user.
     const payload = await request<User>('/api/auth/me', {
