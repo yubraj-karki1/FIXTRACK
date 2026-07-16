@@ -1,4 +1,3 @@
-
 //Authentication Service
 //Handles login validation, password verification, account locking on failed attempts,
 //and password upgrade for non-hashed passwords.

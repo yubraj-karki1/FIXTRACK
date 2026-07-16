@@ -20,39 +20,33 @@ if (existsSync(envFile)) {
 }
 
 export const config = {
-  // Security-sensitive environment values are centralized here for consistent use.
   nodeEnv: process.env.NODE_ENV || 'development',
   isProduction: process.env.NODE_ENV === 'production',
   port: Number(process.env.PORT || 4000),
   serviceName: process.env.SERVICE_NAME || 'FixTrack backend',
   publicOrigin: process.env.PUBLIC_ORIGIN || 'http://localhost:4000',
-  // Credentialed cookie requests cannot safely use a wildcard CORS origin.
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:3000',
-  // Trust forwarding headers only when a known reverse proxy strips client-supplied values.
   trustProxy: process.env.TRUST_PROXY === 'true',
-  // Production redirects accidental HTTP requests unless TLS is already terminated by a trusted proxy.
   requireHttps: process.env.NODE_ENV === 'production' && process.env.REQUIRE_HTTPS !== 'false',
-  // Optional direct TLS support for deployments that do not terminate HTTPS at a reverse proxy.
   httpsKeyPath: process.env.HTTPS_KEY_PATH || '',
   httpsCertPath: process.env.HTTPS_CERT_PATH || '',
   mongodbUri: process.env.MONGODB_URI || '',
   mongodbDatabase: process.env.MONGODB_DATABASE || 'fixtrack',
   seedDemoData: process.env.NODE_ENV !== 'production' && process.env.SEED_DEMO_DATA !== 'false',
-  // Production must provide a strong secret. The fallback only keeps local development convenient.
   jwtSecret:
     process.env.JWT_SECRET ||
     (process.env.NODE_ENV === 'production' ? '' : 'fixtrack-development-only-secret-change-before-production'),
-  // These claims prevent a valid token from another app/environment being accepted here.
   jwtIssuer: process.env.JWT_ISSUER || 'fixtrack-api',
   jwtAudience: process.env.JWT_AUDIENCE || 'fixtrack-web',
-  // Sessions expire after eight hours by default, limiting the lifetime of a stolen cookie.
   jwtExpiresInSeconds: Number(process.env.JWT_EXPIRES_IN_SECONDS || 8 * 60 * 60),
+  // The HttpOnly session cookie is the only supported credential unless an operator
+  // explicitly opts a non-browser client into the Authorization: Bearer fallback.
+  allowBearerFallback: process.env.ALLOW_BEARER_FALLBACK === 'true',
   totpEncryptionKey:
     process.env.TOTP_ENCRYPTION_KEY ||
     (process.env.NODE_ENV === 'production' ? '' : 'fixtrack-development-totp-key-change-before-production')
 };
 
-// Production starts only with deliberate, non-wildcard authentication settings.
 if (config.isProduction && Buffer.byteLength(config.jwtSecret, 'utf8') < 32) {
   throw new Error('JWT_SECRET must contain at least 32 characters in production');
 }

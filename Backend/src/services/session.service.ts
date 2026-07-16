@@ -1,86 +1,47 @@
-// JWT session service
-// Keeps all JWT creation/verification and cookie attributes in one place so controllers
-// never expose tokens in JSON, URLs, JavaScript-readable cookies, or browser storage.
+// Session Service
+// Orchestrates session issuance, cookie writing/clearing, and CSRF binding by composing the
+// Session Configuration (constants/validation), JWT Cookie Fallback (token extraction), and
+// JWT Verification (signature/claims/user-lookup) modules. Controllers never touch tokens or
+// cookies directly - everything auth-cookie-related goes through this file, and its public
+// shape is unchanged by the split so no caller (controllers, middleware, tests) needed to change.
 
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import jwt, { type JwtPayload } from 'jsonwebtoken';
-import { config } from '../config/index.js';
+import jwt from 'jsonwebtoken';
 import { HttpError } from '../errors/http-error.js';
-import { userRepository } from '../repositories/user.repository.js';
 import type { User } from '../types/index.js';
+import {
+  cookieSecurity,
+  getJwtAudience,
+  getJwtIssuer,
+  getValidatedJwtSecret,
+  getValidatedSessionLifetimeSeconds,
+  jwtAlgorithm,
+  pendingCookiePath,
+  pendingPasswordCookieName,
+  pendingPasswordLifetimeSeconds,
+  pendingTotpCookieName,
+  pendingTotpLifetimeSeconds,
+  sessionCookieName,
+  sessionCookiePath,
+  type TokenPurpose
+} from '../config/session.config.js';
+import { getCookieMap, getSessionToken } from './token-source.service.js';
+import { type FixTrackJwtPayload, verifyAndLoadActiveUser, verifyToken } from './jwt-verification.service.js';
 
-// Separate cookies prevent a partially authenticated TOTP user from using full-session routes.
-const sessionCookieName = 'fixtrack_session';
-const pendingTotpCookieName = 'fixtrack_totp_pending';
-const pendingTotpLifetimeSeconds = 5 * 60;
-const pendingPasswordCookieName = 'fixtrack_password_pending';
-const pendingPasswordLifetimeSeconds = 10 * 60;
-
-type TokenPurpose = 'session' | 'totp-pending' | 'password-pending' | 'csrf';
-
-interface FixTrackJwtPayload extends JwtPayload {
-  purpose: TokenPurpose;
-  sessionId?: string;
-}
-
-function getJwtSecret(): string {
-  if (Buffer.byteLength(config.jwtSecret, 'utf8') < 32) {
-    throw new HttpError(500, 'JWT_SECRET must contain at least 32 characters');
-  }
-
-  return config.jwtSecret;
-}
-
-function getSessionLifetimeSeconds(): number {
-  if (!Number.isSafeInteger(config.jwtExpiresInSeconds) || config.jwtExpiresInSeconds <= 0) {
-    throw new HttpError(500, 'JWT_EXPIRES_IN_SECONDS must be a positive integer');
-  }
-
-  return config.jwtExpiresInSeconds;
-}
-
-function getCookieMap(request: IncomingMessage): Record<string, string> {
-  // Parse only server-side. Client code never reads the session cookie or JWT value.
-  const cookieHeader = request.headers.cookie;
-  if (!cookieHeader) return {};
-
-  return Object.fromEntries(
-    cookieHeader.split(';').flatMap((part) => {
-      const separator = part.indexOf('=');
-      if (separator < 0) return [];
-
-      const name = part.slice(0, separator).trim();
-      const value = part.slice(separator + 1).trim();
-      try {
-        return [[name, decodeURIComponent(value)]];
-      } catch {
-        return [];
-      }
-    })
-  );
-}
-
-function serializeCookie(
-  name: string,
-  value: string,
-  options: { maxAgeSeconds: number; path?: string }
-): string {
+function serializeCookie(name: string, value: string, options: { maxAgeSeconds: number; path?: string }): string {
   // An epoch expiry makes deletion unambiguous across browsers and clock skew.
-  const expires = options.maxAgeSeconds <= 0
-    ? new Date(0)
-    : new Date(Date.now() + options.maxAgeSeconds * 1000);
+  const expires = options.maxAgeSeconds <= 0 ? new Date(0) : new Date(Date.now() + options.maxAgeSeconds * 1000);
   const attributes = [
     `${name}=${encodeURIComponent(value)}`,
-    `Path=${options.path || '/'}`,
+    `Path=${options.path || sessionCookiePath}`,
     'HttpOnly',
-    'SameSite=Lax',
+    `SameSite=${cookieSecurity.sameSite}`,
     `Max-Age=${Math.max(0, Math.floor(options.maxAgeSeconds))}`,
     `Expires=${expires.toUTCString()}`
   ];
 
-  // Secure is mandatory in production so the JWT is never sent over plain HTTP.
-  if (config.isProduction) attributes.push('Secure');
+  if (cookieSecurity.secure) attributes.push('Secure');
   return attributes.join('; ');
 }
 
@@ -91,80 +52,24 @@ function appendSetCookie(response: ServerResponse, cookie: string): void {
   response.setHeader('Set-Cookie', [...cookies, cookie]);
 }
 
-function clearCookie(response: ServerResponse, name: string, path = '/'): void {
+function clearCookie(response: ServerResponse, name: string, path = sessionCookiePath): void {
   appendSetCookie(response, serializeCookie(name, '', { maxAgeSeconds: 0, path }));
 }
 
-function signToken(
-  userId: string,
-  purpose: TokenPurpose,
-  expiresInSeconds: number,
-  sessionId?: string
-): string {
+function signToken(userId: string, purpose: TokenPurpose, expiresInSeconds: number, sessionId?: string): string {
   // JWTs contain only the user id and token purpose; user profile data stays out of the token.
   return jwt.sign(
     { purpose, ...(sessionId ? { sessionId } : {}) },
-    getJwtSecret(),
+    getValidatedJwtSecret(),
     {
-      algorithm: 'HS256',
-      audience: config.jwtAudience,
-      issuer: config.jwtIssuer,
+      algorithm: jwtAlgorithm,
+      audience: getJwtAudience(),
+      issuer: getJwtIssuer(),
       subject: userId,
       jwtid: randomUUID(),
       expiresIn: expiresInSeconds
     }
   );
-}
-
-function verifyToken(token: string | undefined, expectedPurpose: TokenPurpose): FixTrackJwtPayload {
-  if (!token) throw new HttpError(401, 'Authentication required');
-
-  try {
-    // Lock the algorithm and validate issuer/audience to avoid accepting a token for another service.
-    const payload = jwt.verify(token, getJwtSecret(), {
-      algorithms: ['HS256'],
-      audience: config.jwtAudience,
-      issuer: config.jwtIssuer
-    });
-
-    if (typeof payload === 'string' || payload.purpose !== expectedPurpose || !payload.sub) {
-      throw new HttpError(401, 'Invalid authentication session');
-    }
-
-    return payload as FixTrackJwtPayload;
-  } catch (error) {
-    if (error instanceof HttpError) throw error;
-    // Do not reveal whether a JWT was malformed, expired, or signed incorrectly.
-    throw new HttpError(401, 'Authentication session is invalid or expired');
-  }
-}
-
-function withoutPrivateFields(user: User): User {
-  const {
-    password,
-    failedLoginAttempts,
-    lockedUntil,
-    totpSecret,
-    pendingTotpSecret,
-    passwordResetCodeHash,
-    passwordResetExpiresAt,
-    passwordResetAttempts,
-    ...safeUser
-  } = user;
-  return safeUser;
-}
-
-async function getAuthenticatedSession(request: IncomingMessage): Promise<{ user: User; payload: FixTrackJwtPayload }> {
-  const cookies = getCookieMap(request);
-  const payload = verifyToken(cookies[sessionCookieName], 'session');
-  // Fetch the user on every check so deactivated accounts cannot use an old JWT.
-  const user = await userRepository.findById(payload.sub!);
-
-  if (!user || user.status !== 'Active') {
-    throw new HttpError(401, 'Authentication session is no longer valid');
-  }
-
-  return { user: withoutPrivateFields(user), payload };
 }
 
 function tokensMatch(left: string, right: string): boolean {
@@ -174,28 +79,34 @@ function tokensMatch(left: string, right: string): boolean {
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 }
 
+async function getAuthenticatedSession(request: IncomingMessage): Promise<{ user: User; payload: FixTrackJwtPayload }> {
+  // The session cookie is checked first; a Bearer header is only ever consulted when
+  // ALLOW_BEARER_FALLBACK=true (see token-source.service.ts).
+  return verifyAndLoadActiveUser(getSessionToken(request));
+}
+
 export const sessionService = {
   issueSession(response: ServerResponse, userId: string): void {
-    const lifetimeSeconds = getSessionLifetimeSeconds();
+    const lifetimeSeconds = getValidatedSessionLifetimeSeconds();
     const token = signToken(userId, 'session', lifetimeSeconds);
     // A completed sign-in replaces any pending 2FA or forced-password-change challenge.
-    clearCookie(response, pendingTotpCookieName, '/api/auth');
-    clearCookie(response, pendingPasswordCookieName, '/api/auth');
+    clearCookie(response, pendingTotpCookieName, pendingCookiePath);
+    clearCookie(response, pendingPasswordCookieName, pendingCookiePath);
     appendSetCookie(
       response,
-      serializeCookie(sessionCookieName, token, { maxAgeSeconds: lifetimeSeconds })
+      serializeCookie(sessionCookieName, token, { maxAgeSeconds: lifetimeSeconds, path: sessionCookiePath })
     );
   },
 
   issuePendingTotp(response: ServerResponse, userId: string): void {
     const token = signToken(userId, 'totp-pending', pendingTotpLifetimeSeconds);
     // A user awaiting the second factor must not retain an authenticated session.
-    clearCookie(response, sessionCookieName);
+    clearCookie(response, sessionCookieName, sessionCookiePath);
     appendSetCookie(
       response,
       serializeCookie(pendingTotpCookieName, token, {
         maxAgeSeconds: pendingTotpLifetimeSeconds,
-        path: '/api/auth'
+        path: pendingCookiePath
       })
     );
   },
@@ -203,26 +114,26 @@ export const sessionService = {
   issuePendingPasswordChange(response: ServerResponse, userId: string): void {
     const token = signToken(userId, 'password-pending', pendingPasswordLifetimeSeconds);
     // A user with an expired password must not retain an authenticated session either.
-    clearCookie(response, sessionCookieName);
+    clearCookie(response, sessionCookieName, sessionCookiePath);
     appendSetCookie(
       response,
       serializeCookie(pendingPasswordCookieName, token, {
         maxAgeSeconds: pendingPasswordLifetimeSeconds,
-        path: '/api/auth'
+        path: pendingCookiePath
       })
     );
   },
 
   clearSession(response: ServerResponse): void {
     // Used by /auth/me so an expired session does not cancel a still-valid TOTP challenge.
-    clearCookie(response, sessionCookieName);
+    clearCookie(response, sessionCookieName, sessionCookiePath);
   },
 
   clearAuthentication(response: ServerResponse): void {
     // Logout clears every cookie created by the authentication flows.
-    clearCookie(response, sessionCookieName);
-    clearCookie(response, pendingTotpCookieName, '/api/auth');
-    clearCookie(response, pendingPasswordCookieName, '/api/auth');
+    clearCookie(response, sessionCookieName, sessionCookiePath);
+    clearCookie(response, pendingTotpCookieName, pendingCookiePath);
+    clearCookie(response, pendingPasswordCookieName, pendingCookiePath);
   },
 
   async getAuthenticatedUser(request: IncomingMessage): Promise<User> {
@@ -238,7 +149,7 @@ export const sessionService = {
 
     // The token is returned only over an authenticated, no-store response and held in memory
     // by the frontend. Keeping it out of a cookie avoids cross-subdomain cookie-read issues.
-    return signToken(payload.sub!, 'csrf', getSessionLifetimeSeconds(), payload.jti);
+    return signToken(payload.sub!, 'csrf', getValidatedSessionLifetimeSeconds(), payload.jti);
   },
 
   async assertCsrfToken(request: IncomingMessage): Promise<void> {
@@ -273,6 +184,7 @@ export const sessionService = {
 
   assertPendingTotpUser(request: IncomingMessage, userId: string): void {
     // The second-factor code is accepted only for the user who completed password/OAuth step one.
+    // Pending challenges are cookie-only - the Bearer fallback never applies here.
     const cookies = getCookieMap(request);
     const pendingToken = cookies[pendingTotpCookieName];
     if (!pendingToken) {

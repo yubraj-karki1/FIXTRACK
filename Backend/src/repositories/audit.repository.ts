@@ -17,7 +17,8 @@ export const auditRepository = {
 
   async findRecent(limit: number): Promise<AuditEvent[]> {
     if (mongo.isConnected) {
-      return mongo.auditEvents().find({}, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(limit).toArray();
+      return mongo.auditEvents().find({}, { projection: { _id: 0 } }).
+      sort({ createdAt: -1 }).limit(limit).toArray();
     }
 
     return fallbackEvents.slice(0, limit);
