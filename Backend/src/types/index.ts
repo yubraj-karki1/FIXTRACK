@@ -31,6 +31,8 @@ export interface User {
   passwordResetCodeHash?: string;
   passwordResetExpiresAt?: string;
   passwordResetAttempts?: number;
+  passwordHistory?: string[];
+  passwordChangedAt?: string;
 }
 
 export interface Complaint {

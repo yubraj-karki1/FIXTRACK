@@ -19,6 +19,7 @@ function withoutPrivateFields(user: User): User {
     passwordResetCodeHash,
     passwordResetExpiresAt,
     passwordResetAttempts,
+    passwordHistory,
     ...safeUser
   } = user;
   return safeUser;
@@ -46,6 +47,7 @@ async function createUserWithRole(input: CreateUserDto, role: UserRole): Promise
     role,
     email,
     password: await hashPassword(input.password),
+    passwordChangedAt: new Date().toISOString(),
     phone: input.phone.trim(),
     building: input.building,
     room: input.room.trim(),

@@ -3,6 +3,12 @@ import bcrypt from 'bcrypt';
 const saltRounds = 12;
 const bcryptHashPattern = /^\$2[aby]\$\d{2}\$/;
 
+// How many previous password hashes are retained per account to block reuse.
+export const passwordHistoryLimit = 5;
+
+// How long a password stays valid before login is blocked pending a reset.
+export const maxPasswordAgeMs = 90 * 24 * 60 * 60 * 1000;
+
 export interface PasswordValidationResult {
   valid: boolean;
   errors: string[];
@@ -54,4 +60,33 @@ export async function verifyPassword(password: string, storedPassword: string | 
 export function ensurePasswordHash(password: string | undefined): string | undefined {
   if (!password || isPasswordHash(password)) return password;
   return hashPasswordSync(password);
+}
+
+//Checks a candidate password against the account's current password and its retained
+//history hashes, so a user cannot immediately reuse a recent password.
+
+export async function wasPasswordUsedBefore(password: string, currentPasswordHash: 
+  string | undefined, history: string[] | undefined): Promise<boolean> {
+  const hashesToCheck = [...(currentPasswordHash ? [currentPasswordHash] : []), ...(history || [])];
+  for (const hash of hashesToCheck) {
+    if (await verifyPassword(password, hash)) return true;
+  }
+  return false;
+}
+
+//Appends the outgoing password hash to the retained history, trimmed to the configured limit.
+
+export function appendPasswordHistory(previousPasswordHash: 
+  string | undefined, history: string[] | undefined): string[] {
+  const updatedHistory = [...(previousPasswordHash ? [previousPasswordHash] : []), ...(history || [])];
+  return updatedHistory.slice(0, passwordHistoryLimit);
+}
+
+//Passwords expiry
+
+export function isPasswordExpired(passwordChangedAt: string | undefined): boolean {
+  if (!passwordChangedAt) return false;
+  const changedAt = new Date(passwordChangedAt);
+  if (Number.isNaN(changedAt.getTime())) return false;
+  return Date.now() - changedAt.getTime() > maxPasswordAgeMs;
 }

@@ -8,7 +8,16 @@ import { userRepository } from '../repositories/user.repository.js';
 import { HttpError } from '../errors/http-error.js';
 import { auditService } from './audit.service.js';
 import { notificationService } from './notification.service.js';
-import { hashPassword, isPasswordHash, validatePasswordStrength, verifyPassword } from './password.service.js';
+import {
+  appendPasswordHistory,
+  hashPassword,
+  isPasswordExpired,
+  isPasswordHash,
+  passwordHistoryLimit,
+  validatePasswordStrength,
+  verifyPassword,
+  wasPasswordUsedBefore
+} from './password.service.js';
 import type { User } from '../types/index.js';
 
 // Security configuration for failed login attempts
@@ -103,6 +112,11 @@ export const authService = {
       throw new HttpError(403, 'This account is inactive');
     }
 
+    // A correct but stale password blocks login until it's replaced via the forgot-password flow.
+    if (isPasswordExpired(user.passwordChangedAt)) {
+      throw new HttpError(403, 'Your password has expired. Please reset it to continue.');
+    }
+
     // Clear failed login attempts and lock on successful login
     const updates: Partial<User> = {
       failedLoginAttempts: undefined,
@@ -140,8 +154,6 @@ export const authService = {
     try {
       await notificationService.sendPasswordResetCode(user.email, code);
     } catch (error) {
-      // The user-facing response must stay generic (see forgotPassword controller), so a
-      // delivery failure is only surfaced here, not thrown back to the caller.
       console.error(`Failed to send password reset email to ${user.email}:`, error);
     }
     void auditService.record(
@@ -181,8 +193,14 @@ export const authService = {
       throw new HttpError(400, passwordValidation.errors.join(' '));
     }
 
+    if (await wasPasswordUsedBefore(newPassword, user.password, user.passwordHistory)) {
+      throw new HttpError(400, `You cannot reuse a recent password. Choose one you haven't used in your last ${passwordHistoryLimit} passwords.`);
+    }
+
     await userRepository.update(user.id, {
       password: await hashPassword(newPassword),
+      passwordChangedAt: new Date().toISOString(),
+      passwordHistory: appendPasswordHistory(user.password, user.passwordHistory),
       passwordResetCodeHash: undefined,
       passwordResetExpiresAt: undefined,
       passwordResetAttempts: undefined,

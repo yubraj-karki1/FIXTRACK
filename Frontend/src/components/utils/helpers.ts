@@ -1,43 +1,22 @@
-/**
- * Utility Functions and Helper Methods
- * Shared utilities for authentication, validation, and data manipulation
- */
 
 import type { User } from '@/types';
 
-// ============== Dashboard Routing ==============
-
-/**
- * Determines the default landing page after login.
- * Admin users keep admin permissions, but they land on the general student dashboard by default.
- */
 export function getDashboardPath(userOrEmail: User | string): string {
   const role = typeof userOrEmail === 'string' ? '' : userOrEmail.role;
   if (role === 'Maintenance Staff') return '/staff';
   return '/student';
 }
 
-/**
- * Checks if a user has administrator privileges
- * Returns true if user role is 'Administrator' or email contains 'admin'
- */
 export function isAdminUser(userOrEmail?: User | string): boolean {
   if (!userOrEmail) return false;
 
   return typeof userOrEmail !== 'string' && userOrEmail.role === 'Administrator';
 }
 
-/**
- * Checks if a path is restricted to admin users only
- */
 export function isAdminOnlyPath(path?: string | null): boolean {
   return !!path && (path === '/admin' || path.startsWith('/admin/'));
 }
 
-/**
- * Determines the redirect destination after login
- * Returns the requested path if allowed for the user's role, otherwise routes to default dashboard
- */
 export function getLoginTarget(requestedNext: string | null, userOrEmail: User | string): string {
   // Reject protocol-relative/external targets supplied through the query string.
   const isSafeInternalPath = requestedNext?.startsWith('/') && !requestedNext.startsWith('//');
@@ -48,20 +27,11 @@ export function getLoginTarget(requestedNext: string | null, userOrEmail: User |
   return getDashboardPath(userOrEmail);
 }
 
-// ============== Password Validation ==============
-
-/**
- * Password validation rules interface
- */
 export interface PasswordRule {
   label: string;
   met: boolean;
 }
 
-/**
- * Validates password against security rules and returns compliance status for each rule
- * Rules: length (8-20), uppercase, lowercase, number, special character, no email
- */
 export function getPasswordRules(password: string, email: string): PasswordRule[] {
   const normalizedPassword = password.toLowerCase();
   const normalizedEmail = email.trim().toLowerCase();
@@ -80,18 +50,12 @@ export function getPasswordRules(password: string, email: string): PasswordRule[
   ];
 }
 
-/**
- * Returns list of failed password validation rules as human-readable error messages
- */
 export function getPasswordErrors(password: string, email: string): string[] {
   return getPasswordRules(password, email)
     .filter((rule) => !rule.met)
     .map((rule) => rule.label);
 }
 
-/**
- * Converts password strength score (0-6) to user-friendly label
- */
 export function getPasswordStrengthLabel(score: number): string {
   if (score <= 2) return 'Weak';
   if (score <= 4) return 'Medium';
@@ -99,12 +63,8 @@ export function getPasswordStrengthLabel(score: number): string {
   return 'Very strong';
 }
 
-// ============== Input Sanitization ==============
+// Input Sanitization Utilities
 
-/**
- * Sanitizes client-side text input by removing HTML tags, control characters,
- * and trimming to specified length. Prevents XSS attacks.
- */
 export function cleanClientText(value: string | null, maxLength = 120): string {
   return String(value || '')
     .replace(/[<>]/g, '')
@@ -113,19 +73,13 @@ export function cleanClientText(value: string | null, maxLength = 120): string {
     .slice(0, maxLength);
 }
 
-/**
- * Sanitizes search input text with a shorter character limit for search queries
- */
+
 export function cleanSearchText(value: string): string {
   return cleanClientText(value, 80);
 }
 
-// ============== Input Validation ==============
+// Input Validation 
 
-/**
- * Input validation utilities for form fields
- * Validates name, email, phone number, and room number formats
- */
 export function isValidName(value: string): boolean {
   return /^[A-Za-z\s'.-]{2,80}$/.test(value);
 }
