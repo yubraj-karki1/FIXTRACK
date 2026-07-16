@@ -86,7 +86,6 @@ export const authService = {
         });
       }
 
-      // Record failed attempt and clear any prior lock
       await userRepository.update(user.id, {
         failedLoginAttempts,
         lockedUntil: undefined
@@ -105,10 +104,6 @@ export const authService = {
       throw new HttpError(403, 'This account is inactive');
     }
 
-    // Password expiry is gated by the controller after this returns (issuing a pending-change
-    // challenge instead of a full session), the same way TOTP is layered on top of a valid password.
-
-    // Clear failed login attempts and lock on successful login
     const updates: Partial<User> = {
       failedLoginAttempts: undefined,
       lockedUntil: undefined

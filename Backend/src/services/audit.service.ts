@@ -32,7 +32,6 @@ export const auditService = {
     try {
       await auditRepository.create(event);
     } catch (error) {
-      // A logging failure must never break the user-facing action that triggered it.
       console.error('Failed to record audit event:', error);
     }
   },
