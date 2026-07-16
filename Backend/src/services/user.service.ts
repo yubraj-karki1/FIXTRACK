@@ -119,8 +119,15 @@ export const userService = {
       throw new HttpError(400, 'A role or account status update is required');
     }
 
+    const target = await userRepository.findById(userId);
+    if (!target) throw new HttpError(404, 'User not found');
+
     const updated = await userRepository.update(userId, {
-      ...(input.role !== undefined ? { role: input.role } : {}),
+      ...(input.role !== undefined
+        // A role change alters what the account is authorized to do, so any session issued
+        // under the old role must stop working immediately rather than at natural expiry.
+        ? { role: input.role, sessionVersion: (target.sessionVersion ?? 0) + 1 }
+        : {}),
       ...(input.status !== undefined ? { status: input.status } : {})
     });
     if (!updated) throw new HttpError(404, 'User not found');

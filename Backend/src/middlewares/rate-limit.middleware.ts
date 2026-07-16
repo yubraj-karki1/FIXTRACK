@@ -25,7 +25,10 @@ const sensitiveRouteLimits: Record<string, RateLimitRule> = {
   'POST /api/auth/password/expired-change': { maxRequests: 8, windowMs: 15 * minute },
   'POST /api/auth/email/verify': { maxRequests: 8, windowMs: 15 * minute },
   'POST /api/auth/totp/verify-login': { maxRequests: 8, windowMs: 15 * minute },
-  'POST /api/auth/totp/verify-setup': { maxRequests: 8, windowMs: 15 * minute }
+  'POST /api/auth/totp/verify-setup': { maxRequests: 8, windowMs: 15 * minute },
+  // Disabling MFA is also gated by a 6-digit code check (see totpService.disable), so it
+  // needs the same brute-force throttling as the verify routes.
+  'POST /api/auth/totp/disable': { maxRequests: 8, windowMs: 15 * minute }
 };
 
 function getClientIp(request: IncomingMessage): string {

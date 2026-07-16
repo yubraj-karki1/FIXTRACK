@@ -198,7 +198,9 @@ export const authService = {
       passwordResetAttempts: undefined,
       // A successful reset is proof of ownership, so also clear any unrelated login lockout.
       failedLoginAttempts: undefined,
-      lockedUntil: undefined
+      lockedUntil: undefined,
+      // Invalidate every session issued before this reset, including a stolen one.
+      sessionVersion: (user.sessionVersion ?? 0) + 1
     });
 
     void auditService.record(
@@ -232,7 +234,10 @@ export const authService = {
       passwordChangedAt: new Date().toISOString(),
       passwordHistory: appendPasswordHistory(user.password, user.passwordHistory),
       failedLoginAttempts: undefined,
-      lockedUntil: undefined
+      lockedUntil: undefined,
+      // Invalidate every session issued before this change, including a stolen one. The
+      // controller re-fetches the user and reissues a fresh session for this caller.
+      sessionVersion: (user.sessionVersion ?? 0) + 1
     });
 
     void auditService.record(

@@ -38,7 +38,7 @@ export const authController = {
       // A full session is deliberately withheld until the second factor succeeds.
       sessionService.issuePendingTotp(response, user.id);
     } else {
-      sessionService.issueSession(response, user.id);
+      sessionService.issueSession(response, user);
     }
 
     response.setHeader('Cache-Control', 'no-store');
@@ -87,22 +87,26 @@ export const authController = {
     // The short-lived HttpOnly challenge prevents callers from starting at this endpoint.
     sessionService.assertPendingTotpUser(request, userId);
     const user = await totpService.verifyLogin(userId, token);
-    sessionService.issueSession(response, user.id);
+    sessionService.issueSession(response, user);
     response.setHeader('Cache-Control', 'no-store');
     sendJson<User>(response, 200, {
       data: user,
       message: 'Two-factor authentication verified'
     });
   },
-  
+
    //Disables TOTP on user account
-  
+
   async disableTotp(request: IncomingMessage, response: ServerResponse, userId: string, token: string): Promise<void> {
     // Prevent an authenticated user from disabling another user's second factor.
     await assertCurrentUser(request, userId);
     // Disabling the second factor requires proof of the current authenticator.
     await totpService.verifyLogin(userId, token);
     const user = await totpService.disable(userId);
+    // Disabling MFA bumps sessionVersion, invalidating every session issued before this point
+    // (including a stolen one). Reissue immediately so the legitimate caller - who just proved
+    // both password (at login) and the current TOTP code - isn't logged out by their own request.
+    sessionService.issueSession(response, user);
     response.setHeader('Cache-Control', 'no-store');
     sendJson<User>(response, 200, {
       data: user,
@@ -154,8 +158,10 @@ export const authController = {
     // The pending-password cookie is the only proof of the earlier successful login.
     sessionService.assertPendingPasswordUser(request, userId);
     await authService.changePasswordAfterExpiry(userId, newPassword);
+    // Re-fetch after the password service bumps sessionVersion, so the new session token
+    // embeds the current version instead of immediately invalidating itself.
     const user = await userService.getUserById(userId);
-    sessionService.issueSession(response, user.id);
+    sessionService.issueSession(response, user);
     response.setHeader('Cache-Control', 'no-store');
     sendJson<User>(response, 200, {
       data: user,

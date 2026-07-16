@@ -78,7 +78,7 @@ function registrationBody(email: string, role?: UserRole): Record<string, string
 
 function sessionCookie(userId: string): string {
   const capture = new CookieCapture();
-  sessionService.issueSession(capture as unknown as ServerResponse, userId);
+  sessionService.issueSession(capture as unknown as ServerResponse, { id: userId });
   const cookies = capture.getHeader('Set-Cookie');
   const session = (Array.isArray(cookies) ? cookies : [cookies]).find((cookie) => cookie?.startsWith('fixtrack_session='));
   assert.ok(session);

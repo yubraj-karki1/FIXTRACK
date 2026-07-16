@@ -56,10 +56,16 @@ function clearCookie(response: ServerResponse, name: string, path = sessionCooki
   appendSetCookie(response, serializeCookie(name, '', { maxAgeSeconds: 0, path }));
 }
 
-function signToken(userId: string, purpose: TokenPurpose, expiresInSeconds: number, sessionId?: string): string {
+function signToken(
+  userId: string,
+  purpose: TokenPurpose,
+  expiresInSeconds: number,
+  sessionId?: string,
+  sessionVersion?: number
+): string {
   // JWTs contain only the user id and token purpose; user profile data stays out of the token.
   return jwt.sign(
-    { purpose, ...(sessionId ? { sessionId } : {}) },
+    { purpose, ...(sessionId ? { sessionId } : {}), ...(sessionVersion !== undefined ? { sv: sessionVersion } : {}) },
     getValidatedJwtSecret(),
     {
       algorithm: jwtAlgorithm,
@@ -86,9 +92,11 @@ async function getAuthenticatedSession(request: IncomingMessage): Promise<{ user
 }
 
 export const sessionService = {
-  issueSession(response: ServerResponse, userId: string): void {
+  // Accepts just the fields it needs (not a full User) so callers - including tests - can
+  // issue a session without assembling an entire user record.
+  issueSession(response: ServerResponse, user: Pick<User, 'id' | 'sessionVersion'>): void {
     const lifetimeSeconds = getValidatedSessionLifetimeSeconds();
-    const token = signToken(userId, 'session', lifetimeSeconds);
+    const token = signToken(user.id, 'session', lifetimeSeconds, undefined, user.sessionVersion ?? 0);
     // A completed sign-in replaces any pending 2FA or forced-password-change challenge.
     clearCookie(response, pendingTotpCookieName, pendingCookiePath);
     clearCookie(response, pendingPasswordCookieName, pendingCookiePath);

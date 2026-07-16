@@ -16,6 +16,10 @@ export function encryptSecret(value: string): string {
     encrypted.toString('base64url')].join(':');
 }
 
+export function isEncryptedSecret(value: string | undefined): boolean {
+  return Boolean(value && value.startsWith(`${prefix}:`));
+}
+
 export function decryptSecret(value: string): string {
   if (!value.startsWith(`${prefix}:`)) return value;
   const parts = value.split(':');

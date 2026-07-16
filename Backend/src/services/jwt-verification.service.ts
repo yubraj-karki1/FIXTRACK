@@ -15,6 +15,8 @@ import {
 export interface FixTrackJwtPayload extends JwtPayload {
   purpose: TokenPurpose;
   sessionId?: string;
+  // Session-token-only: the account's sessionVersion at issuance time (see verifyAndLoadActiveUser).
+  sv?: number;
 }
 
 export function verifyToken(token: string | undefined, expectedPurpose: TokenPurpose): FixTrackJwtPayload {
@@ -55,12 +57,19 @@ function withoutPrivateFields(user: User): User {
 }
 
 
-export async function verifyAndLoadActiveUser(token: string | undefined): 
+export async function verifyAndLoadActiveUser(token: string | undefined):
 Promise<{ user: User; payload: FixTrackJwtPayload }> {
   const payload = verifyToken(token, 'session');
   const user = await userRepository.findById(payload.sub!);
 
   if (!user || user.status !== 'Active') {
+    throw new HttpError(401, 'Authentication session is no longer valid');
+  }
+
+  // A password reset/change, role change, or MFA disable bumps sessionVersion, so any
+  // token signed before that action - including a stolen one - stops working immediately
+  // instead of waiting out the full session lifetime.
+  if ((payload.sv ?? 0) !== (user.sessionVersion ?? 0)) {
     throw new HttpError(401, 'Authentication session is no longer valid');
   }
 

@@ -82,7 +82,10 @@ export const totpService = {
     const updated = await userRepository.update(user.id, {
       totpSecret: undefined,
       pendingTotpSecret: undefined,
-      totpEnabled: false
+      totpEnabled: false,
+      // Invalidate every session issued before this disable, including a stolen one. The
+      // controller reissues a fresh session for this caller after this returns.
+      sessionVersion: (user.sessionVersion ?? 0) + 1
     });
 
     return withoutTotpSecrets(updated || user);

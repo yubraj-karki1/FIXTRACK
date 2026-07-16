@@ -24,7 +24,7 @@ export const userController = {
     // The registration service validates and hashes the password before this point.
     const user = await userService.createUser(body);
     // Registration preserves the existing auto-login UX while creating a real session.
-    sessionService.issueSession(response, user.id);
+    sessionService.issueSession(response, user);
     response.setHeader('Cache-Control', 'no-store');
     sendJson<User>(response, 201, {
       data: user,

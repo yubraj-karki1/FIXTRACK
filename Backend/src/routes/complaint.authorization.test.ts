@@ -73,7 +73,7 @@ after(async () => {
 
 function cookieFor(userId: string): string {
   const capture = new CookieCapture();
-  sessionService.issueSession(capture as unknown as ServerResponse, userId);
+  sessionService.issueSession(capture as unknown as ServerResponse, { id: userId });
   const cookies = capture.getHeader('Set-Cookie');
   const session = (Array.isArray(cookies) ? cookies : [cookies]).find((value) => value?.startsWith('fixtrack_session='));
   assert.ok(session);

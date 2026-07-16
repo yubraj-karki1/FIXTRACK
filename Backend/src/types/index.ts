@@ -33,6 +33,10 @@ export interface User {
   passwordResetAttempts?: number;
   passwordHistory?: string[];
   passwordChangedAt?: string;
+  // Bumped on password reset/change, role change, and MFA disable so any session token
+  // issued before that point fails verification immediately (see jwt-verification.service.ts).
+  // Not a secret - intentionally left out of the private-field stripping helpers.
+  sessionVersion?: number;
 }
 
 export interface Complaint {

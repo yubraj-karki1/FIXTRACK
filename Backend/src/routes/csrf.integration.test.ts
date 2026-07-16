@@ -23,7 +23,7 @@ class CookieCapture {
 function getSessionCookie(): string {
   const capture = new CookieCapture();
   // The service only uses getHeader/setHeader when issuing cookies.
-  sessionService.issueSession(capture as unknown as ServerResponse, 'U-3001');
+  sessionService.issueSession(capture as unknown as ServerResponse, { id: 'U-3001' });
   const cookies = capture.getHeader('Set-Cookie');
   const session = (Array.isArray(cookies) ? cookies : [cookies]).find((cookie) => cookie?.startsWith('fixtrack_session='));
   assert.ok(session, 'a login session cookie should be issued');

@@ -5,6 +5,7 @@ import { Collection, Db, MongoClient, OptionalUnlessRequiredId } from 'mongodb';
 import { config } from '../config/index.js';
 import { complaints as seedComplaints, users as seedUsers } from '../data/index.js';
 import { ensurePasswordHash } from '../services/password.service.js';
+import { encryptSecret, isEncryptedSecret } from '../services/secret-encryption.service.js';
 import type { AuditEvent, Complaint, User } from '../types/index.js';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -28,16 +29,26 @@ function loadUsers(): User[] {
     }
   }
 
-  const hashedUsers = loadedUsers.map(hashUserPassword);
-  if (hashedUsers.some((user, index) => user.password !== loadedUsers[index]?.password)) {
-    persistUsers(hashedUsers);
+  const upgradedUsers = loadedUsers.map(upgradeUserSecrets);
+  if (
+    upgradedUsers.some(
+      (user, index) => user.password !== loadedUsers[index]?.password || user.phone !== loadedUsers[index]?.phone
+    )
+  ) {
+    persistUsers(upgradedUsers);
   }
 
-  return hashedUsers;
+  return upgradedUsers;
 }
 
-function hashUserPassword(user: User): User {
-  return { ...user, password: ensurePasswordHash(user.password) };
+// Upgrades legacy plaintext values written before hashing/encryption were introduced,
+// the same way an already-hashed password or already-encrypted phone is left untouched.
+function upgradeUserSecrets(user: User): User {
+  return {
+    ...user,
+    password: ensurePasswordHash(user.password),
+    phone: isEncryptedSecret(user.phone) ? user.phone : encryptSecret(user.phone)
+  };
 }
 
 function persistUsers(users: User[]): void {
@@ -115,6 +126,7 @@ export async function connectDatabase(): Promise<void> {
     await seedMongoCollection(mongo.complaints(), database.complaints);
   }
   await migrateMongoPasswords();
+  await migrateMongoPhones();
   await migrateSeedComplaintOwnership();
 
   console.log(`MongoDB connected: ${config.mongodbDatabase}`);
@@ -142,6 +154,16 @@ async function migrateMongoPasswords(): Promise<void> {
       if (hashedPassword && hashedPassword !== user.password) {
         await mongo.users().updateOne({ id: user.id }, { $set: { password: hashedPassword } });
       }
+    })
+  );
+}
+
+async function migrateMongoPhones(): Promise<void> {
+  const users = await mongo.users().find({}, { projection: { _id: 0 } }).toArray();
+  await Promise.all(
+    users.map(async (user) => {
+      if (!user.phone || isEncryptedSecret(user.phone)) return;
+      await mongo.users().updateOne({ id: user.id }, { $set: { phone: encryptSecret(user.phone) } });
     })
   );
 }
