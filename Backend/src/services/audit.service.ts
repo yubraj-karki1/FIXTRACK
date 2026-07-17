@@ -17,7 +17,8 @@ const maxListLimit = 200;
 const defaultListLimit = 100;
 
 export const auditService = {
-  async record(type: AuditEventType, message: string, actor: Actor, targetId?: string): Promise<void> {
+  async record(type: AuditEventType, message: string, actor: Actor, 
+    targetId?: string): Promise<void> {
     const event: AuditEvent = {
       id: randomUUID(),
       type,
