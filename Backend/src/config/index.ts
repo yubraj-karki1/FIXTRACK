@@ -44,7 +44,24 @@ export const config = {
   allowBearerFallback: process.env.ALLOW_BEARER_FALLBACK === 'true',
   totpEncryptionKey:
     process.env.TOTP_ENCRYPTION_KEY ||
-    (process.env.NODE_ENV === 'production' ? '' : 'fixtrack-development-totp-key-change-before-production')
+    (process.env.NODE_ENV === 'production' ? '' : 'fixtrack-development-totp-key-change-before-production'),
+
+  // Uploaded files are written outside the project's source/dist trees and outside any
+  // directory ever served as static content, so they are never reachable by guessing a path.
+  uploadDir: resolve(process.env.UPLOAD_DIR || resolve(process.cwd(), '..', 'var', 'uploads')),
+  maxUploadBytes: Number(process.env.MAX_UPLOAD_BYTES || 5 * 1024 * 1024),
+  maxImageDimension: Number(process.env.MAX_IMAGE_DIMENSION_PX || 5000),
+  maxConcurrentUploadsPerUser: Number(process.env.MAX_CONCURRENT_UPLOADS_PER_USER || 2),
+  // Off by default so local development without a running ClamAV daemon is not blocked.
+  // Fails closed (rejects uploads) whenever enabled but unreachable - never fails open.
+  clamavEnabled: process.env.CLAMAV_ENABLED === 'true',
+  clamavHost: process.env.CLAMAV_HOST || '127.0.0.1',
+  clamavPort: Number(process.env.CLAMAV_PORT || 3310),
+  // Optional S3-compatible storage. When unset, uploads are stored on local disk.
+  s3Enabled: process.env.UPLOAD_S3_ENABLED === 'true',
+  s3Bucket: process.env.UPLOAD_S3_BUCKET || '',
+  s3Region: process.env.UPLOAD_S3_REGION || '',
+  s3SignedUrlTtlSeconds: Number(process.env.UPLOAD_S3_SIGNED_URL_TTL_SECONDS || 300)
 };
 
 if (config.isProduction && Buffer.byteLength(config.jwtSecret, 'utf8') < 32) {
@@ -87,4 +104,12 @@ if (config.isProduction && !hasOnlyHttpsCorsOrigins) {
 
 if (config.requireHttps && !config.trustProxy && !hasDirectHttps) {
   throw new Error('Production HTTPS requires TRUST_PROXY=true or HTTPS_KEY_PATH and HTTPS_CERT_PATH');
+}
+
+if (config.s3Enabled && (!config.s3Bucket || !config.s3Region)) {
+  throw new Error('UPLOAD_S3_BUCKET and UPLOAD_S3_REGION are required when UPLOAD_S3_ENABLED=true');
+}
+
+if (config.isProduction && !config.clamavEnabled) {
+  console.warn('CLAMAV_ENABLED is false in production - uploaded files will not be malware-scanned.');
 }

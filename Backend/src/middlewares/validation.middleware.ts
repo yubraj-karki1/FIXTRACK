@@ -267,6 +267,14 @@ export const complaintIdValidationSchema: Schema = {
   }
 };
 
+export const uploadIdValidationSchema: Schema = {
+  id: {
+    in: ['params'],
+    trim: true,
+    isUUID: { errorMessage: 'Invalid file reference.' }
+  }
+};
+
 export const userIdValidationSchema: Schema = {
   id: {
     in: ['params'],

@@ -27,7 +27,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<ApiResponse
   const method = (init?.method || 'GET').toUpperCase();
   const headers = new Headers(init?.headers);
 
-  if (!headers.has('Content-Type')) {
+  // A FormData body (multipart file uploads) must let the browser set its own
+  // multipart/form-data Content-Type, including the boundary - never override it here.
+  if (!headers.has('Content-Type') && !(init?.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
   }
   if (csrfProtectedMethods.has(method) && csrfToken) {
@@ -55,7 +57,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<ApiResponse
   return payload;
 }
 
+/**
+ * Fetches an uploaded file's bytes as a blob object URL. Used instead of a plain <img src>
+ * because GET /api/uploads/:id requires the HttpOnly session cookie, which a cross-origin
+ * <img> request would not send (the cookie is SameSite=Lax). Caller must revoke the returned
+ * URL (URL.revokeObjectURL) once it is no longer displayed.
+ */
+async function fetchAuthenticatedImage(path: string): Promise<string> {
+  const response = await fetch(`${apiBaseUrl}${path}`, { credentials: 'include' });
+  if (!response.ok) {
+    throw new Error('Unable to load image');
+  }
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
+}
+
 export const api = {
+  fetchAuthenticatedImage,
   async login(email: string, password: string): Promise<AuthLoginResponse> {
     // The backend writes the session cookie; this response never includes a JWT.
     const payload = await request<AuthLoginResponse>('/api/auth/login', {
@@ -196,6 +214,26 @@ export const api = {
     const payload = await request<User>('/api/auth/profile', {
       method: 'PATCH',
       body: JSON.stringify(input)
+    });
+    return payload.data;
+  },
+
+  // Sent as multipart/form-data - the backend validates MIME type, magic number, dimensions,
+  // and malware-scans/re-encodes the file server-side before ever writing it to storage.
+  async uploadAvatar(file: File): Promise<User> {
+    const formData = new FormData();
+    formData.append('avatar', file);
+    const payload = await request<User>('/api/profile/avatar', { method: 'POST', body: formData });
+    return payload.data;
+  },
+
+  async uploadComplaintImage(complaintId: string, file: File, caption?: string): Promise<Complaint> {
+    const formData = new FormData();
+    formData.append('image', file);
+    if (caption) formData.append('caption', caption);
+    const payload = await request<Complaint>(`/api/complaints/${encodeURIComponent(complaintId)}/image`, {
+      method: 'POST',
+      body: formData
     });
     return payload.data;
   },

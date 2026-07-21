@@ -534,6 +534,13 @@ table select,
   box-shadow: 0 10px 22px rgba(15, 23, 42, 0.12);
 }
 
+.avatar-upload-label {
+  margin-top: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  width: auto;
+}
+
 .page {
   max-width: 1360px;
   margin: 0 auto;

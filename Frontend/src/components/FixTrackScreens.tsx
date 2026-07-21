@@ -39,7 +39,7 @@ import {
   Wifi
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { FormEvent, InputHTMLAttributes, PropsWithChildren, ReactNode, SelectHTMLAttributes } from 'react';
+import type { ChangeEvent, FormEvent, InputHTMLAttributes, PropsWithChildren, ReactNode, SelectHTMLAttributes } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import {
   Bar,
@@ -631,10 +631,14 @@ export function StudentDashboardPage() {
   );
 }
 
+const allowedImageMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const maxImageBytesClientHint = 5 * 1024 * 1024;
+
 export function CreateComplaintPage() {
   const router = useRouter();
   const { complaints, setComplaints, notify, currentUser } = useFixTrack();
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -642,6 +646,8 @@ export function CreateComplaintPage() {
     const title = String(data.get('title') || '').trim();
     const description = String(data.get('description') || '').trim();
     const room = String(data.get('room') || '').trim();
+    const imageFile = data.get('image');
+    const image = imageFile instanceof File && imageFile.size > 0 ? imageFile : null;
 
     if (title.length < 3) {
       setError('Title must be at least 3 characters.');
@@ -658,8 +664,20 @@ export function CreateComplaintPage() {
       return;
     }
 
+    // Client-side checks are only a convenience - the server re-validates MIME type, magic
+    // number, dimensions, and content regardless of what is claimed here.
+    if (image && !allowedImageMimeTypes.has(image.type)) {
+      setError('Photo must be a JPEG, PNG, or WebP image.');
+      return;
+    }
+    if (image && image.size > maxImageBytesClientHint) {
+      setError('Photo must be 5 MB or smaller.');
+      return;
+    }
+
+    setSubmitting(true);
     try {
-      const created = await api.createComplaint({
+      let created = await api.createComplaint({
         title,
         category: data.get('category') as ComplaintCategoryName,
         priority: data.get('priority') as ComplaintPriority,
@@ -667,11 +685,22 @@ export function CreateComplaintPage() {
         room,
         description
       });
+
+      if (image) {
+        try {
+          created = await api.uploadComplaintImage(created.id, image);
+        } catch (uploadError) {
+          notify(uploadError instanceof Error ? uploadError.message : 'Complaint submitted, but the photo upload failed.');
+        }
+      }
+
       setComplaints([created, ...complaints]);
       notify('Complaint submitted successfully.');
       router.push('/complaints');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to submit complaint.');
+    } finally {
+      setSubmitting(false);
     }
   };
   return (
@@ -689,8 +718,12 @@ export function CreateComplaintPage() {
           <Select label="Building" name="building" options={buildings.slice(0, 4)} defaultValue={currentUser.building} />
           <Input label="Room number" name="room" placeholder={currentUser.room || '204'} defaultValue={currentUser.room} required />
           <PrioritySelector />
-          <button className="button button-primary span-2" type="submit">
-            Submit complaint
+          <label className="field span-2">
+            Evidence photo (optional)
+            <input type="file" name="image" accept="image/jpeg,image/png,image/webp" />
+          </label>
+          <button className="button button-primary span-2" type="submit" disabled={submitting}>
+            {submitting ? 'Submitting...' : 'Submit complaint'}
           </button>
         </form>
       </Panel>
@@ -762,7 +795,7 @@ export function ComplaintDetailPage({ id }: { id: string }) {
               {complaint.studentPhone ? ` • ${complaint.studentPhone}` : ''}
             </p>
           )}
-          <img className="detail-image" src={complaint.image} alt={`${complaint.title} evidence`} />
+          <SecureImage className="detail-image" src={complaint.image} alt={complaint.imageCaption || `${complaint.title} evidence`} />
         </Panel>
         <Panel title="Status progress">
           <Timeline status={complaint.status} />
@@ -1382,6 +1415,31 @@ export function ProfilePage() {
     }
   };
 
+  const uploadAvatar = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    // Client-side checks are only a convenience - the server re-validates MIME type, magic
+    // number, dimensions, and content regardless of what is claimed here.
+    if (!allowedImageMimeTypes.has(file.type)) {
+      notify('Photo must be a JPEG, PNG, or WebP image.');
+      return;
+    }
+    if (file.size > maxImageBytesClientHint) {
+      notify('Photo must be 5 MB or smaller.');
+      return;
+    }
+
+    try {
+      const updated = await api.uploadAvatar(file);
+      setCurrentUser({ ...currentUser, ...updated, photo: currentUser.photo });
+      notify('Profile photo updated successfully.');
+    } catch (caught) {
+      notify(caught instanceof Error ? caught.message : 'Unable to upload profile photo.');
+    }
+  };
+
   const disableTotp = async () => {
     setTotpError('');
 
@@ -1407,12 +1465,20 @@ export function ProfilePage() {
       <section className="profile-layout">
         <Panel>
           <div className="profile-card">
-            <span className="avatar profile">{initials(currentUser.name)}</span>
+            {currentUser.avatarUrl ? (
+              <SecureImage className="profile-photo" src={currentUser.avatarUrl} alt={`${currentUser.name}'s profile photo`} />
+            ) : (
+              <span className="avatar profile">{initials(currentUser.name)}</span>
+            )}
             <h2>{currentUser.name}</h2>
             <p>
               {currentUser.role} • {currentUser.building}, Room {currentUser.room || '-'}
             </p>
             {currentUser.studentId && <p className="muted">Student ID: {currentUser.studentId}</p>}
+            <label className="button button-secondary avatar-upload-label">
+              Change photo
+              <input type="file" accept="image/jpeg,image/png,image/webp" onChange={uploadAvatar} hidden />
+            </label>
           </div>
         </Panel>
         <Panel title="Edit profile">
@@ -1461,6 +1527,45 @@ export function ProfilePage() {
       </section>
     </>
   );
+}
+
+// Uploaded files are served from an authenticated, cookie-protected endpoint rather than a
+// public URL. Session cookies are SameSite=Lax, so a plain cross-origin <img src> would not
+// carry the cookie - this fetches the bytes with credentials and renders them as a blob URL.
+// Legacy/demo image URLs (e.g. the default stock photo) are not under /api/uploads and are
+// rendered directly, unchanged.
+function SecureImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
+  const [objectUrl, setObjectUrl] = useState('');
+  const isAuthenticatedUpload = src.startsWith('/api/uploads/');
+
+  useEffect(() => {
+    if (!isAuthenticatedUpload) return;
+
+    let cancelled = false;
+    let createdUrl = '';
+    api
+      .fetchAuthenticatedImage(src)
+      .then((url) => {
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        createdUrl = url;
+        setObjectUrl(url);
+      })
+      .catch(() => setObjectUrl(''));
+
+    return () => {
+      cancelled = true;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [src, isAuthenticatedUpload]);
+
+  if (!isAuthenticatedUpload) {
+    return <img className={className} src={src} alt={alt} />;
+  }
+
+  return objectUrl ? <img className={className} src={objectUrl} alt={alt} /> : null;
 }
 
 function PageHeader({ title, description, action }: PageHeaderProps) {

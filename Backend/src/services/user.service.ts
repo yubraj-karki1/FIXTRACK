@@ -22,7 +22,11 @@ function withoutPrivateFields(user: User): User {
     passwordHistory,
     ...safeUser
   } = user;
-  return safeUser;
+  return {
+    ...safeUser,
+    // The file itself is only ever reachable through the authenticated streaming route.
+    avatarUrl: safeUser.avatarUploadId ? `/api/uploads/${safeUser.avatarUploadId}` : undefined
+  };
 }
 
 async function createUserWithRole(input: CreateUserDto, role: UserRole): Promise<User> {
@@ -145,6 +149,13 @@ export const userService = {
       );
     }
 
+    return withoutPrivateFields(updated);
+  },
+
+  /** Called only after upload.service has fully validated, scanned, and stored the new file. */
+  async setAvatarUpload(userId: string, uploadId: string): Promise<User> {
+    const updated = await userRepository.update(userId, { avatarUploadId: uploadId });
+    if (!updated) throw new HttpError(404, 'User not found');
     return withoutPrivateFields(updated);
   }
 };

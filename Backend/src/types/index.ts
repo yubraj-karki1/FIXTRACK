@@ -37,6 +37,11 @@ export interface User {
   // issued before that point fails verification immediately (see jwt-verification.service.ts).
   // Not a secret - intentionally left out of the private-field stripping helpers.
   sessionVersion?: number;
+  // References an UploadRecord id; the actual file is only reachable through the
+  // authenticated /api/uploads/:id streaming route, never by a direct filesystem path.
+  avatarUploadId?: string;
+  // Joined at read time from avatarUploadId (not stored) so callers get a ready-to-use path.
+  avatarUrl?: string;
 }
 
 export interface Complaint {
@@ -57,6 +62,11 @@ export interface Complaint {
   submitted: string;
   description: string;
   image: string;
+  // Set once a real file has been uploaded through POST /api/complaints/:id/image.
+  // `image` keeps rendering the same value the frontend has always used - either this
+  // record's streaming URL, or the legacy default/HTTPS URL for complaints without an upload.
+  imageUploadId?: string;
+  imageCaption?: string;
   notes: string[];
   updates: ComplaintStatus[];
 }
@@ -83,7 +93,9 @@ export type AuditEventType =
   | 'complaint.created'
   | 'complaint.status_changed'
   | 'complaint.assigned'
-  | 'complaint.note_added';
+  | 'complaint.note_added'
+  | 'upload.succeeded'
+  | 'upload.rejected';
 
 export interface AuditEvent {
   id: string;
@@ -94,7 +106,33 @@ export interface AuditEvent {
   actorRole?: UserRole;
   targetId?: string;
   createdAt: string;
+  // Structured detail for events that need more than a human-readable message - currently
+  // only upload events, which must record IP, size, and MIME type (see upload.service.ts).
+  metadata?: Record<string, string | number>;
 }
+
+export type UploadResourceType = 'profile' | 'complaint';
+
+/**
+ * Metadata for a file that has passed the full validation/scan/re-encode pipeline and been
+ * written to private storage. The bytes are only ever reachable through GET /api/uploads/:id,
+ * which loads this record to authorize the request - there is no public path to the file.
+ */
+export interface UploadRecord {
+  id: string;
+  ownerUserId: string;
+  resourceType: UploadResourceType;
+  resourceId: string;
+  storedFilename: string;
+  mimeType: AllowedUploadMimeType;
+  sizeBytes: number;
+  width: number;
+  height: number;
+  caption?: string;
+  createdAt: string;
+}
+
+export type AllowedUploadMimeType = 'image/jpeg' | 'image/webp';
 
 export interface ApiResponse<T> {
   data: T;

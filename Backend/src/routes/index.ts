@@ -7,6 +7,7 @@ import { auditController } from '../controller/audit.controller.js';
 import { authController } from '../controller/auth.controller.js';
 import { complaintController } from '../controller/complaint.controller.js';
 import { sendJson } from '../controller/response.js';
+import { uploadController } from '../controller/upload.controller.js';
 import { userController } from '../controller/user.controller.js';
 import type {
   ForgotPasswordRequestDto,
@@ -38,6 +39,7 @@ import {
   searchValidationSchema,
   updateComplaintValidationSchema,
   updateProfileValidationSchema,
+  uploadIdValidationSchema,
   userIdValidationSchema,
   validateRequest
 } from '../middlewares/validation.middleware.js';
@@ -272,7 +274,39 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
       await complaintController.update(response, params.id, body, authenticatedUser);
       return;
     }
-    
+
+    // Replace the evidence image on a complaint. Multipart body - never passed through
+    // readJsonBody; the upload middleware reads the raw request stream itself.
+    const complaintImageMatch = url.pathname.match(/^\/api\/complaints\/([^/]+)\/image$/);
+    if (request.method === 'POST' && complaintImageMatch) {
+      const authenticatedUser = await requireAuthenticatedUser(request);
+      const params = await validateRequest<{ id: string }>(
+        { params: { id: complaintImageMatch[1] } },
+        complaintIdValidationSchema,
+        'params'
+      );
+      await uploadController.uploadComplaintImage(request, response, authenticatedUser, params.id);
+      return;
+    }
+
+    // Replace the authenticated user's own profile avatar. Multipart body, same reasoning as above.
+    if (request.method === 'POST' && url.pathname === '/api/profile/avatar') {
+      const authenticatedUser = await requireAuthenticatedUser(request);
+      await uploadController.uploadAvatar(request, response, authenticatedUser);
+      return;
+    }
+
+    // Stream a previously uploaded file's bytes (or redirect to a signed URL for S3 storage).
+    // This is the only path by which an uploaded file is ever reachable - there is no static
+    // file server and no direct-by-filename access to the upload directory or bucket.
+    const uploadMatch = url.pathname.match(/^\/api\/uploads\/([^/]+)$/);
+    if (request.method === 'GET' && uploadMatch) {
+      const authenticatedUser = await requireAuthenticatedUser(request);
+      const params = await validateRequest<{ id: string }>({ params: { id: uploadMatch[1] } }, uploadIdValidationSchema, 'params');
+      await uploadController.streamUpload(response, params.id, authenticatedUser);
+      return;
+    }
+
     throw new HttpError(404, 'Route not found');
   } catch (error) {
     if (error instanceof HttpError) {

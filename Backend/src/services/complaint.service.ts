@@ -8,7 +8,7 @@ import type { Complaint, ComplaintStatus, User } from '../types/index.js';
 
 const defaultEvidenceImage = 'https://images.unsplash.com/photo-1581092795360-fd1ca04f0952?auto=format&fit=crop&w=900&q=80';
 
-function canAccessComplaint(user: User, complaint: Complaint): boolean {
+export function canAccessComplaint(user: User, complaint: Complaint): boolean {
   if (user.role === 'Administrator') return true;
   // Staff can see their own assigned work plus the unassigned queue (read-only, until an
   // administrator assigns it), but not complaints already assigned to a different staff member.
@@ -21,6 +21,11 @@ function assertComplaintAccess(user: User, complaint: Complaint): void {
     // Avoid revealing whether an inaccessible complaint ID exists.
     throw new HttpError(404, 'Complaint not found');
   }
+}
+
+/** Only the complaint's own submitter or an administrator may replace its evidence image. */
+export function canReplaceComplaintImage(user: User, complaint: Complaint): boolean {
+  return user.role === 'Administrator' || complaint.studentUserId === user.id;
 }
 
 function addStatusHistory(complaint: Complaint, status: ComplaintStatus): ComplaintStatus[] {
@@ -60,6 +65,29 @@ export const complaintService = {
     const complaint = await findComplaint(id);
     assertComplaintAccess(user, complaint);
     return withStudentPhone(complaint);
+  },
+
+  /** Authorizes and loads a complaint for an image-replacement request; upload.controller does the actual upload. */
+  async assertCanReplaceImage(id: string, user: User): Promise<Complaint> {
+    const complaint = await findComplaint(id);
+    assertComplaintAccess(user, complaint);
+    if (!canReplaceComplaintImage(user, complaint)) {
+      throw new HttpError(403, 'You may only replace the image on your own complaint.');
+    }
+    return complaint;
+  },
+
+  /** Called only after upload.service has fully validated, scanned, and stored the new file. */
+  async attachImage(id: string, uploadId: string, imageUrl: string, caption: string | undefined): Promise<Complaint> {
+    const updated = await complaintRepository.update(id, {
+      imageUploadId: uploadId,
+      image: imageUrl,
+      imageCaption: caption
+    });
+    if (!updated) throw new HttpError(404, 'Complaint not found');
+    // upload.service.ts already records the upload.succeeded/upload.rejected audit event
+    // for this action, so no separate complaint.* event is logged here.
+    return withStudentPhone(updated);
   },
 
   async createComplaint(input: CreateComplaintDto, user: User): Promise<Complaint> {

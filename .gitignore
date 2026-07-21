@@ -24,3 +24,6 @@ pnpm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# User-uploaded files (private, outside any web root - never committed)
+/var/uploads/

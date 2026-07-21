@@ -28,10 +28,24 @@ const sensitiveRouteLimits: Record<string, RateLimitRule> = {
   'POST /api/auth/totp/verify-setup': { maxRequests: 8, windowMs: 15 * minute },
   // Disabling MFA is also gated by a 6-digit code check (see totpService.disable), so it
   // needs the same brute-force throttling as the verify routes.
-  'POST /api/auth/totp/disable': { maxRequests: 8, windowMs: 15 * minute }
+  'POST /api/auth/totp/disable': { maxRequests: 8, windowMs: 15 * minute },
+  // Uploads are CPU/IO heavy (Sharp decode + re-encode, optional ClamAV scan) and, unlike a
+  // login attempt, cost real disk/bandwidth per request - throttled well below general traffic.
+  'POST /api/profile/avatar': { maxRequests: 10, windowMs: 15 * minute },
+  'POST /api/complaints/:id/image': { maxRequests: 10, windowMs: 15 * minute }
 };
 
-function getClientIp(request: IncomingMessage): string {
+// Routes with a dynamic segment are rewritten to their route-pattern form before the rate
+// limit key is built, so /api/complaints/FX-1/image and /api/complaints/FX-2/image share a
+// bucket per client rather than each getting their own unlimited allowance.
+const dynamicPathPatterns: Array<[RegExp, string]> = [[/^\/api\/complaints\/[^/]+\/image$/, '/api/complaints/:id/image']];
+
+function normalizePathname(pathname: string): string {
+  const match = dynamicPathPatterns.find(([pattern]) => pattern.test(pathname));
+  return match ? match[1] : pathname;
+}
+
+export function getClientIp(request: IncomingMessage): string {
   const forwardedFor = request.headers['x-forwarded-for'];
   if (config.trustProxy && typeof forwardedFor === 'string' && forwardedFor.trim()) {
     return forwardedFor.split(',')[0].trim();
@@ -41,7 +55,7 @@ function getClientIp(request: IncomingMessage): string {
 }
 
 export function assertRateLimit(request: IncomingMessage, pathname: string): void {
-  const key = `${request.method || 'GET'} ${pathname}`;
+  const key = `${request.method || 'GET'} ${normalizePathname(pathname)}`;
   const rule = sensitiveRouteLimits[key];
   if (!rule) return;
 
@@ -68,4 +82,23 @@ export function assertRateLimit(request: IncomingMessage, pathname: string): voi
   }
 
   bucket.count += 1;
+}
+
+// Caps how many uploads a single user can have in flight at once, independent of the
+// time-windowed request-count limit above. Protects CPU/memory (Sharp + ClamAV both hold
+// full-file buffers) from a burst of parallel requests from one account.
+const activeUploadsByUser = new Map<string, number>();
+
+export function acquireUploadSlot(userId: string): void {
+  const current = activeUploadsByUser.get(userId) ?? 0;
+  if (current >= config.maxConcurrentUploadsPerUser) {
+    throw new HttpError(429, 'Too many uploads in progress. Please wait for the current one to finish.');
+  }
+  activeUploadsByUser.set(userId, current + 1);
+}
+
+export function releaseUploadSlot(userId: string): void {
+  const current = activeUploadsByUser.get(userId) ?? 0;
+  if (current <= 1) activeUploadsByUser.delete(userId);
+  else activeUploadsByUser.set(userId, current - 1);
 }

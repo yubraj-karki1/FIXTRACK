@@ -26,6 +26,8 @@ export interface User {
   status: AccountStatus;
   studentId?: string;
   photo?: string;
+  // Server-computed path to the authenticated file-streaming endpoint - never a direct file path.
+  avatarUrl?: string;
   totpEnabled?: boolean;
 }
 
@@ -58,6 +60,7 @@ export interface Complaint {
   submitted: string;
   description: string;
   image: string;
+  imageCaption?: string;
   notes: string[];
   updates: ComplaintStatus[];
 }

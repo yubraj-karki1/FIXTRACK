@@ -6,7 +6,7 @@ import { config } from '../config/index.js';
 import { complaints as seedComplaints, users as seedUsers } from '../data/index.js';
 import { ensurePasswordHash } from '../services/password.service.js';
 import { encryptSecret, isEncryptedSecret } from '../services/secret-encryption.service.js';
-import type { AuditEvent, Complaint, User } from '../types/index.js';
+import type { AuditEvent, Complaint, UploadRecord, User } from '../types/index.js';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const usersFile = resolve(currentDir, '../../data/users.json');
@@ -102,6 +102,13 @@ export const mongo = {
       throw new Error('MongoDB is not connected');
     }
     return mongoDatabase.collection<AuditEvent>('auditEvents');
+  },
+
+  uploads(): Collection<UploadRecord> {
+    if (!mongoDatabase) {
+      throw new Error('MongoDB is not connected');
+    }
+    return mongoDatabase.collection<UploadRecord>('uploads');
   }
 };
 
@@ -121,6 +128,8 @@ export async function connectDatabase(): Promise<void> {
   await mongo.complaints().createIndex({ studentUserId: 1, submitted: -1 });
   await mongo.complaints().createIndex({ staffUserId: 1, status: 1 });
   await mongo.auditEvents().createIndex({ createdAt: -1 });
+  await mongo.uploads().createIndex({ id: 1 }, { unique: true });
+  await mongo.uploads().createIndex({ resourceType: 1, resourceId: 1 });
   if (config.seedDemoData) {
     await seedMongoCollection(mongo.users(), database.users);
     await seedMongoCollection(mongo.complaints(), database.complaints);
