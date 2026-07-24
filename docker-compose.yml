@@ -1,0 +1,45 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+
+  backend:
+    build: ./Backend
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      PUBLIC_ORIGIN: http://localhost:4000
+      CORS_ORIGIN: http://localhost:3000
+      MONGODB_URI: mongodb://mongo:27017
+      MONGODB_DATABASE: fixtrack
+      SEED_DEMO_DATA: "true"
+      # Dev-only fallbacks so `docker compose up` works with no setup. Override both via a
+      # root .env file (or real secrets) before running this anywhere but a local machine.
+      JWT_SECRET: ${JWT_SECRET:-fixtrack-docker-dev-secret-change-before-any-real-deployment}
+      TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:-fixtrack-docker-dev-totp-key-change-before-any-deployment}
+      UPLOAD_DIR: /app/var/uploads
+    ports:
+      - '4000:4000'
+    volumes:
+      - backend-uploads:/app/var/uploads
+
+  frontend:
+    build: ./Frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      # Server-side rewrite target only (see next.config.mjs) - the browser never talks to
+      # the backend container directly, it goes through this Next.js server.
+      BACKEND_URL: http://backend:4000
+    ports:
+      - '3000:3000'
+
+volumes:
+  mongo-data:
+  backend-uploads:

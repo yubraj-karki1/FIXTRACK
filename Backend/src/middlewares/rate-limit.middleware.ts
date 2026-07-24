@@ -26,12 +26,16 @@ const sensitiveRouteLimits: Record<string, RateLimitRule> = {
   'POST /api/auth/email/verify': { maxRequests: 8, windowMs: 15 * minute },
   'POST /api/auth/totp/verify-login': { maxRequests: 8, windowMs: 15 * minute },
   'POST /api/auth/totp/verify-setup': { maxRequests: 8, windowMs: 15 * minute },
+  // Recovery codes are single-use but still guessable in principle, so throttle exactly
+  // like the other TOTP verification routes.
+  'POST /api/auth/totp/recover': { maxRequests: 8, windowMs: 15 * minute },
   // Disabling MFA is also gated by a 6-digit code check (see totpService.disable), so it
   // needs the same brute-force throttling as the verify routes.
   'POST /api/auth/totp/disable': { maxRequests: 8, windowMs: 15 * minute },
   // Uploads are CPU/IO heavy (Sharp decode + re-encode, optional ClamAV scan) and, unlike a
   // login attempt, cost real disk/bandwidth per request - throttled well below general traffic.
   'POST /api/profile/avatar': { maxRequests: 10, windowMs: 15 * minute },
+  'GET /api/users/me/export': { maxRequests: 10, windowMs: 60 * minute },
   'POST /api/complaints/:id/image': { maxRequests: 10, windowMs: 15 * minute }
 };
 

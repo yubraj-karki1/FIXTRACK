@@ -12,6 +12,16 @@ export interface TotpVerifyRequestDto {
   token: string;
 }
 
+/** Used for TOTP setup-confirmation and disable, which both also require the account password. */
+export interface TotpConfirmRequestDto extends TotpVerifyRequestDto {
+  currentPassword: string;
+}
+
+export interface TotpRecoveryRequestDto {
+  userId: string;
+  recoveryCode: string;
+}
+
 export interface ForgotPasswordRequestDto {
   email: string;
 }

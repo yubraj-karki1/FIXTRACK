@@ -3,11 +3,12 @@
 //and sensitive data filtering
 
 import { userRepository } from '../repositories/user.repository.js';
+import { complaintRepository } from '../repositories/complaint.repository.js';
 import type { AdminUpdateUserDto, CreatePrivilegedUserDto, CreateUserDto, UpdateProfileDto } from '../dtos/user.dto.js';
 import { HttpError } from '../errors/http-error.js';
-import { auditService } from './audit.service.js';
+import { auditService, type AuditContext } from './audit.service.js';
 import { hashPassword, validatePasswordStrength } from './password.service.js';
-import type { User, UserRole } from '../types/index.js';
+import type { Complaint, User, UserRole } from '../types/index.js';
 
 function withoutPrivateFields(user: User): User {
   const {
@@ -35,7 +36,7 @@ async function createUserWithRole(input: CreateUserDto, role: UserRole): Promise
     throw new HttpError(400, 'Email and password are required');
   }
 
-  const passwordValidation = validatePasswordStrength(input.password, email);
+  const passwordValidation = validatePasswordStrength(input.password, email, input.name);
   if (!passwordValidation.valid) {
     throw new HttpError(400, passwordValidation.errors.join(' '));
   }
@@ -104,7 +105,7 @@ export const userService = {
     return user;
   },
 
-  async updateProfile(userId: string, input: UpdateProfileDto): Promise<User> {
+  async updateProfile(userId: string, input: UpdateProfileDto, context?: AuditContext): Promise<User> {
     const updated = await userRepository.update(userId, {
       name: input.name.trim(),
       phone: input.phone.trim(),
@@ -112,6 +113,13 @@ export const userService = {
       room: input.room.trim()
     });
     if (!updated) throw new HttpError(404, 'User not found');
+    void auditService.record(
+      'user.profile_updated',
+      `${updated.name} updated their profile.`,
+      { id: updated.id, name: updated.name, role: updated.role },
+      updated.id,
+      context
+    );
     return withoutPrivateFields(updated);
   },
 
@@ -157,5 +165,29 @@ export const userService = {
     const updated = await userRepository.update(userId, { avatarUploadId: uploadId });
     if (!updated) throw new HttpError(404, 'User not found');
     return withoutPrivateFields(updated);
+  },
+
+  /**
+   * Self-service export of the caller's own data: their profile plus complaints they
+   * personally filed. Deliberately filters by studentUserId directly rather than reusing
+   * complaintService.getComplaints, which for a Staff/Admin caller returns complaints
+   * assigned to or visible to them - the wrong scope for a "my data" export.
+   */
+  async exportUserData(userId: string, context?: AuditContext): Promise<{ profile: User; complaints: Complaint[] }> {
+    const user = await userRepository.findById(userId);
+    if (!user) throw new HttpError(404, 'User not found');
+
+    const allComplaints = await complaintRepository.findAll();
+    const ownComplaints = allComplaints.filter((complaint) => complaint.studentUserId === userId);
+
+    void auditService.record(
+      'user.data_exported',
+      `${user.name} exported their personal data.`,
+      { id: user.id, name: user.name, role: user.role },
+      user.id,
+      context
+    );
+
+    return { profile: withoutPrivateFields(user), complaints: ownComplaints };
   }
 };

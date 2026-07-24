@@ -120,8 +120,8 @@ export const passwordResetValidationSchema: Schema = {
     in: ['body'],
     isString: { errorMessage: 'A new password is required.' },
     isLength: {
-      options: { min: 8, max: 20 },
-      errorMessage: 'Password must be between 8 and 20 characters.'
+      options: { min: 12, max: 128 },
+      errorMessage: 'Password must be between 12 and 128 characters.'
     }
   }
 };
@@ -137,8 +137,8 @@ export const passwordExpiredChangeValidationSchema: Schema = {
     in: ['body'],
     isString: { errorMessage: 'A new password is required.' },
     isLength: {
-      options: { min: 8, max: 20 },
-      errorMessage: 'Password must be between 8 and 20 characters.'
+      options: { min: 12, max: 128 },
+      errorMessage: 'Password must be between 12 and 128 characters.'
     }
   }
 };
@@ -183,8 +183,8 @@ export const registerValidationSchema: Schema = {
     in: ['body'],
     isString: { errorMessage: 'Password is required.' },
     isLength: {
-      options: { min: 8, max: 20 },
-      errorMessage: 'Password must be between 8 and 20 characters.'
+      options: { min: 12, max: 128 },
+      errorMessage: 'Password must be between 12 and 128 characters.'
     }
   },
   phone: {
@@ -364,6 +364,14 @@ export const searchValidationSchema: Schema = {
       options: { max: 80 },
       errorMessage: 'Search text must be 80 characters or fewer.'
     }
+  }
+};
+
+export const exportFormatValidationSchema: Schema = {
+  format: {
+    in: ['query'],
+    optional: { options: { nullable: true, checkFalsy: true } },
+    isIn: { options: [['json', 'csv']], errorMessage: 'Format must be json or csv.' }
   }
 };
 

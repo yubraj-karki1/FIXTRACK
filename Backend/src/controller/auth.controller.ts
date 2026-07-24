@@ -1,26 +1,40 @@
 
  //Authentication Controller
  //Handles all authentication endpoints: login, TOTP setup/verification, logout
- 
+
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { HttpError } from '../errors/http-error.js';
+import { auditService, type AuditContext } from '../services/audit.service.js';
 import { authService } from '../services/auth.service.js';
 import { isPasswordExpired } from '../services/password.service.js';
+import { getClientIp } from '../middlewares/rate-limit.middleware.js';
 import { totpService } from '../services/totp.service.js';
 import { sessionService } from '../services/session.service.js';
 import { userService } from '../services/user.service.js';
 import { sendJson } from './response.js';
-import type { ForgotPasswordRequestDto, LoginRequestDto, PasswordResetRequestDto } from '../dtos/auth.dto.js';
-import type { AuthLoginResponse, TotpSetupResponse, User } from '../types/index.js';
+import type {
+  ForgotPasswordRequestDto,
+  LoginRequestDto,
+  PasswordResetRequestDto,
+  TotpConfirmRequestDto,
+  TotpRecoveryRequestDto
+} from '../dtos/auth.dto.js';
+import type { AuthLoginResponse, TotpSetupResponse, TotpSetupVerifiedResponse, User } from '../types/index.js';
+
+// IP/user-agent attached to auth-related audit events (see upload.service.ts for the
+// pre-existing pattern of putting this in the metadata bag rather than a dedicated column).
+function requestContext(request: IncomingMessage): AuditContext {
+  return { ip: getClientIp(request), userAgent: String(request.headers['user-agent'] || '') };
+}
 
 export const authController = {
-  
+
    //Email/password login endpoint
    //Validates credentials and returns user + TOTP requirement if enabled
-   
-  async login(response: ServerResponse, credentials: LoginRequestDto): Promise<void> {
-    const user = await authService.validateLogin(credentials.email, credentials.password);
-    
+
+  async login(request: IncomingMessage, response: ServerResponse, credentials: LoginRequestDto): Promise<void> {
+    const user = await authService.validateLogin(credentials.email, credentials.password, requestContext(request));
+
 // Check if the user's password has expired and requires a change
     if (isPasswordExpired(user.passwordChangedAt)) {
       sessionService.issuePendingPasswordChange(response, user.id);
@@ -48,9 +62,9 @@ export const authController = {
     });
   },
 
-  
+
    //Initiates TOTP setup - generates QR code for authenticator app
-   
+
   async setupTotp(request: IncomingMessage, response: ServerResponse, userId: string): Promise<void> {
     // The request body may name a user, but the authenticated cookie is authoritative.
     await assertCurrentUser(request, userId);
@@ -65,16 +79,15 @@ export const authController = {
   async verifyTotpSetup(
     request: IncomingMessage,
     response: ServerResponse,
-    userId: string,
-    token: string
+    body: TotpConfirmRequestDto
   ): Promise<void> {
     // TOTP enrollment is also limited to the account represented by the session cookie.
-    await assertCurrentUser(request, userId);
-    const user = await totpService.verifySetup(userId, token);
+    await assertCurrentUser(request, body.userId);
+    const result = await totpService.verifySetup(body.userId, body.token, body.currentPassword, requestContext(request));
     response.setHeader('Cache-Control', 'no-store');
-    sendJson<User>(response, 200, {
-      data: user,
-      message: 'Two-factor authentication enabled'
+    sendJson<TotpSetupVerifiedResponse>(response, 200, {
+      data: result,
+      message: 'Two-factor authentication enabled. Save your recovery codes now - they will not be shown again.'
     });
   },
 
@@ -86,7 +99,7 @@ export const authController = {
   ): Promise<void> {
     // The short-lived HttpOnly challenge prevents callers from starting at this endpoint.
     sessionService.assertPendingTotpUser(request, userId);
-    const user = await totpService.verifyLogin(userId, token);
+    const user = await totpService.verifyLogin(userId, token, requestContext(request));
     sessionService.issueSession(response, user);
     response.setHeader('Cache-Control', 'no-store');
     sendJson<User>(response, 200, {
@@ -95,14 +108,27 @@ export const authController = {
     });
   },
 
+  async verifyTotpRecovery(request: IncomingMessage, response: ServerResponse, body: TotpRecoveryRequestDto): Promise<void> {
+    // Same pre-session gating as the normal 2FA verification step.
+    sessionService.assertPendingTotpUser(request, body.userId);
+    const user = await totpService.verifyRecoveryCode(body.userId, body.recoveryCode, requestContext(request));
+    sessionService.issueSession(response, user);
+    response.setHeader('Cache-Control', 'no-store');
+    sendJson<User>(response, 200, {
+      data: user,
+      message: 'Recovery code accepted'
+    });
+  },
+
    //Disables TOTP on user account
 
-  async disableTotp(request: IncomingMessage, response: ServerResponse, userId: string, token: string): Promise<void> {
+  async disableTotp(request: IncomingMessage, response: ServerResponse, body: TotpConfirmRequestDto): Promise<void> {
     // Prevent an authenticated user from disabling another user's second factor.
-    await assertCurrentUser(request, userId);
-    // Disabling the second factor requires proof of the current authenticator.
-    await totpService.verifyLogin(userId, token);
-    const user = await totpService.disable(userId);
+    await assertCurrentUser(request, body.userId);
+    // Disabling the second factor requires proof of the current authenticator...
+    await totpService.verifyLogin(body.userId, body.token, requestContext(request));
+    // ...and the account password, so a hijacked session alone can't turn MFA off.
+    const user = await totpService.disable(body.userId, body.currentPassword, requestContext(request));
     // Disabling MFA bumps sessionVersion, invalidating every session issued before this point
     // (including a stolen one). Reissue immediately so the legitimate caller - who just proved
     // both password (at login) and the current TOTP code - isn't logged out by their own request.
@@ -134,8 +160,8 @@ export const authController = {
     sendJson<{ token: string }>(response, 200, { data: { token } });
   },
 
-  async forgotPassword(response: ServerResponse, body: ForgotPasswordRequestDto): Promise<void> {
-    await authService.requestPasswordReset(body.email);
+  async forgotPassword(request: IncomingMessage, response: ServerResponse, body: ForgotPasswordRequestDto): Promise<void> {
+    await authService.requestPasswordReset(body.email, requestContext(request));
     response.setHeader('Cache-Control', 'no-store');
     // Always the same response, whether or not the email is registered, so this endpoint
     // cannot be used to enumerate accounts.
@@ -145,8 +171,8 @@ export const authController = {
     });
   },
 
-  async resetPassword(response: ServerResponse, body: PasswordResetRequestDto): Promise<void> {
-    await authService.resetPassword(body.email, body.code, body.newPassword);
+  async resetPassword(request: IncomingMessage, response: ServerResponse, body: PasswordResetRequestDto): Promise<void> {
+    await authService.resetPassword(body.email, body.code, body.newPassword, requestContext(request));
     response.setHeader('Cache-Control', 'no-store');
     sendJson<null>(response, 200, {
       data: null,
@@ -157,7 +183,7 @@ export const authController = {
   async changeExpiredPassword(request: IncomingMessage, response: ServerResponse, userId: string, newPassword: string): Promise<void> {
     // The pending-password cookie is the only proof of the earlier successful login.
     sessionService.assertPendingPasswordUser(request, userId);
-    await authService.changePasswordAfterExpiry(userId, newPassword);
+    await authService.changePasswordAfterExpiry(userId, newPassword, requestContext(request));
     // Re-fetch after the password service bumps sessionVersion, so the new session token
     // embeds the current version instead of immediately invalidating itself.
     const user = await userService.getUserById(userId);
@@ -169,7 +195,22 @@ export const authController = {
     });
   },
 
-  logout(response: ServerResponse): void {
+  async logout(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    // Best-effort: log who logged out, but logout must succeed even with an already-expired
+    // or missing session - it's the one auth action that can never itself fail on the client.
+    try {
+      const user = await sessionService.getAuthenticatedUser(request);
+      void auditService.record(
+        'user.logout',
+        `${user.name} logged out.`,
+        { id: user.id, name: user.name, role: user.role },
+        user.id,
+        requestContext(request)
+      );
+    } catch {
+      // No valid session to attribute the logout to - nothing to log.
+    }
+
     // HttpOnly cookies can only be cleared by the server using matching attributes.
     sessionService.clearAuthentication(response);
     response.setHeader('Cache-Control', 'no-store');

@@ -1,4 +1,5 @@
 import bcrypt from 'bcrypt';
+import { isCommonPassword } from './common-passwords.js';
 
 const saltRounds = 12;
 const bcryptHashPattern = /^\$2[aby]\$\d{2}\$/;
@@ -18,14 +19,14 @@ export function isPasswordHash(password: string | undefined): boolean {
   return Boolean(password && bcryptHashPattern.test(password));
 }
 
-export function validatePasswordStrength(password: string, email: string): PasswordValidationResult {
+export function validatePasswordStrength(password: string, email: string, name?: string): PasswordValidationResult {
   const errors: string[] = [];
   const normalizedPassword = password.toLowerCase();
   const normalizedEmail = email.trim().toLowerCase();
   const emailName = normalizedEmail.split('@')[0] || '';
 
-  if (password.length < 8) errors.push('Password must be at least 8 characters long.');
-  if (password.length > 20) errors.push('Password must be no more than 20 characters long.');
+  if (password.length < 12) errors.push('Password must be at least 12 characters long.');
+  if (password.length > 128) errors.push('Password must be no more than 128 characters long.');
   if (!/[A-Z]/.test(password)) errors.push('Password must include at least one uppercase letter.');
   if (!/[a-z]/.test(password)) errors.push('Password must include at least one lowercase letter.');
   if (!/\d/.test(password)) errors.push('Password must include at least one number.');
@@ -35,6 +36,17 @@ export function validatePasswordStrength(password: string, email: string): Passw
     (normalizedPassword.includes(normalizedEmail) || (emailName.length >= 3 && normalizedPassword.includes(emailName)))
   ) {
     errors.push('Password cannot contain your email address.');
+  }
+
+  // Check each name part separately (not just the full string) so "Jonathan1!Secure" is
+  // still caught for a user named "Jonathan Smith", not just an exact "jonathan smith" match.
+  const nameParts = (name || '').trim().toLowerCase().split(/\s+/).filter((part) => part.length >= 3);
+  if (nameParts.some((part) => normalizedPassword.includes(part))) {
+    errors.push('Password cannot contain your name.');
+  }
+
+  if (isCommonPassword(password)) {
+    errors.push('That password is too common. Choose something more unique.');
   }
 
   return { valid: errors.length === 0, errors };

@@ -74,7 +74,7 @@ export function Panel({ title, children }: PropsWithChildren<{ title?: string }>
 
 export function AuthShell({ title, subtitle, children }: PropsWithChildren<{ title: string; subtitle: string }>) {
   return (
-    <main className="auth-page">
+    <main className="auth-page" id="main-content">
       <Link className="brand" href="/">
         <Wrench /> FixTrack
       </Link>

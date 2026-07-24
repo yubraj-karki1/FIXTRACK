@@ -13,12 +13,16 @@ interface Actor {
   role?: User['role'];
 }
 
+// Shared shape for the optional request-derived detail (IP, user agent) attached to an event,
+// alongside any event-specific metadata (see upload.service.ts for a pre-existing example).
+export type AuditContext = Record<string, string | number>;
+
 const maxListLimit = 200;
 const defaultListLimit = 100;
 
 export const auditService = {
   async record(type: AuditEventType, message: string, actor: Actor,
-    targetId?: string, metadata?: Record<string, string | number>): Promise<void> {
+    targetId?: string, metadata?: AuditContext): Promise<void> {
     const event: AuditEvent = {
       id: randomUUID(),
       type,

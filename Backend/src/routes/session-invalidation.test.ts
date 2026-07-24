@@ -195,7 +195,7 @@ test('disabling TOTP invalidates a stale session and reissues a working replacem
   const response = await fetch(`${baseUrl}/api/auth/totp/disable`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Cookie: currentCookie, 'X-CSRF-Token': csrfToken },
-    body: JSON.stringify({ userId: user.id, token: code })
+    body: JSON.stringify({ userId: user.id, token: code, currentPassword: 'Valid!Pass123' })
   });
   assert.equal(response.status, 200);
   const freshCookie = response.headers.getSetCookie().find((cookie) => cookie.startsWith('fixtrack_session='));

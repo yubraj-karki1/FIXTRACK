@@ -41,7 +41,7 @@ export function getPasswordRules(password: string, email: string): PasswordRule[
     Boolean(emailName.length >= 3 && normalizedPassword.includes(emailName));
 
   return [
-    { label: '8 to 20 characters', met: password.length >= 8 && password.length <= 20 },
+    { label: '12 to 128 characters', met: password.length >= 12 && password.length <= 128 },
     { label: 'One uppercase letter', met: /[A-Z]/.test(password) },
     { label: 'One lowercase letter', met: /[a-z]/.test(password) },
     { label: 'One number', met: /\d/.test(password) },

@@ -7,6 +7,7 @@ import type {
   ComplaintPriority,
   ComplaintStatus,
   TotpSetupResponse,
+  TotpSetupVerifiedResponse,
   User,
   UserRole
 } from '@/types';
@@ -264,10 +265,10 @@ export const api = {
     return payload.data;
   },
 
-  async verifyTotpSetup(userId: string, token: string): Promise<User> {
-    const payload = await request<User>('/api/auth/totp/verify-setup', {
+  async verifyTotpSetup(userId: string, token: string, currentPassword: string): Promise<TotpSetupVerifiedResponse> {
+    const payload = await request<TotpSetupVerifiedResponse>('/api/auth/totp/verify-setup', {
       method: 'POST',
-      body: JSON.stringify({ userId, token })
+      body: JSON.stringify({ userId, token, currentPassword })
     });
     return payload.data;
   },
@@ -282,11 +283,32 @@ export const api = {
     return payload.data;
   },
 
-  async disableTotp(userId: string, token: string): Promise<User> {
+  async verifyTotpRecoveryCode(userId: string, recoveryCode: string): Promise<User> {
+    // Fallback path for a lost authenticator - also upgrades the challenge cookie to a full session.
+    const payload = await request<User>('/api/auth/totp/recover', {
+      method: 'POST',
+      body: JSON.stringify({ userId, recoveryCode })
+    });
+    csrfToken = null;
+    return payload.data;
+  },
+
+  async disableTotp(userId: string, token: string, currentPassword: string): Promise<User> {
     const payload = await request<User>('/api/auth/totp/disable', {
       method: 'POST',
-      body: JSON.stringify({ userId, token })
+      body: JSON.stringify({ userId, token, currentPassword })
     });
     return payload.data;
+  },
+
+  async exportMyData(format: 'json' | 'csv'): Promise<Blob> {
+    const response = await fetch(`${apiBaseUrl}/api/users/me/export?format=${format}`, {
+      method: 'GET',
+      credentials: 'include'
+    });
+    if (!response.ok) {
+      throw new Error('Unable to export your data right now.');
+    }
+    return response.blob();
   }
 };

@@ -19,8 +19,12 @@ import {
   ClipboardCheck,
   Clock3,
   DoorOpen,
+  Download,
   Droplets,
   FileText,
+  ImageOff,
+  ImagePlus,
+  KeyRound,
   LayoutDashboard,
   LogIn,
   LogOut,
@@ -29,6 +33,9 @@ import {
   Plus,
   Search,
   Settings,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldOff,
   Sofa,
   Sparkles,
   Sun,
@@ -123,8 +130,8 @@ interface PasswordRule {
 
 
 // Validates password against security rules and returns compliance status for each rule
-// Rules: length (8-20), uppercase, lowercase, number, special character, no email
- 
+// Rules: length (12-128), uppercase, lowercase, number, special character, no email
+
 function getPasswordRules(password: string, email: string): PasswordRule[] {
   const normalizedPassword = password.toLowerCase();
   const normalizedEmail = email.trim().toLowerCase();
@@ -134,7 +141,7 @@ function getPasswordRules(password: string, email: string): PasswordRule[] {
     Boolean(emailName.length >= 3 && normalizedPassword.includes(emailName));
 
   return [
-    { label: '8 to 20 characters', met: password.length >= 8 && password.length <= 20 },
+    { label: '12 to 128 characters', met: password.length >= 12 && password.length <= 128 },
     { label: 'One uppercase letter', met: /[A-Z]/.test(password) },
     { label: 'One lowercase letter', met: /[a-z]/.test(password) },
     { label: 'One number', met: /\d/.test(password) },
@@ -216,7 +223,7 @@ interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
 
 export function LandingPage() {
   return (
-    <main className="landing">
+    <main className="landing" id="main-content">
       <nav className="landing-nav">
         <Link className="brand" href="/">
           <Wrench /> FixTrack
@@ -297,7 +304,7 @@ function FeatureCard({ icon: Icon, title, text }: { icon: LucideIcon; title: str
 
 function AuthShell({ title, subtitle, children }: PropsWithChildren<{ title: string; subtitle: string }>) {
   return (
-    <main className="auth-page">
+    <main className="auth-page" id="main-content">
       <Link className="brand" href="/">
         <Wrench /> FixTrack
       </Link>
@@ -320,9 +327,21 @@ export function TotpLoginPage() {
   const searchParams = useSearchParams();
   const { notify, refreshAuth } = useFixTrack();
   const [token, setToken] = useState('');
+  const [recoveryCode, setRecoveryCode] = useState('');
+  const [useRecoveryCode, setUseRecoveryCode] = useState(false);
   const [error, setError] = useState('');
   const userId = searchParams.get('userId') || '';
   const next = searchParams.get('next');
+
+  const afterVerified = async () => {
+    const user = await refreshAuth();
+    if (!user) {
+      throw new Error('Two-factor verification succeeded, but the session could not be refreshed.');
+    }
+    notify('Two-factor authentication verified.');
+    router.replace(getLoginTarget(next, user));
+    router.refresh();
+  };
 
   const verify = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -331,30 +350,63 @@ export function TotpLoginPage() {
     try {
       // This endpoint replaces the challenge cookie with the final HttpOnly session cookie.
       await api.verifyTotpLogin(userId, token);
-      const user = await refreshAuth();
-      if (!user) {
-        throw new Error('Two-factor verification succeeded, but the session could not be refreshed.');
-      }
-      notify('Two-factor authentication verified.');
-      router.replace(getLoginTarget(next, user));
-      router.refresh();
+      await afterVerified();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Invalid authenticator code.');
     }
   };
+
+  const verifyWithRecoveryCode = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError('');
+
+    try {
+      await api.verifyTotpRecoveryCode(userId, recoveryCode);
+      await afterVerified();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Invalid or already used recovery code.');
+    }
+  };
+
   return (
-    <AuthShell title="Two-factor verification" subtitle="Enter the 6-digit code from your authenticator app.">
-      <form className="form" onSubmit={verify}>
-        {error && <p className="validation">{error}</p>}
-        <Input label="Authenticator code" inputMode="numeric" maxLength={6} value={token} 
-        onChange={(event) => setToken(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="123456" required />
-        <button className="button button-primary full" type="submit">
-          Verify and continue
-        </button>
-        <p className="form-help">
-          <Link href="/login">Back to login</Link>
-        </p>
-      </form>
+    <AuthShell title="Two-factor verification" subtitle={useRecoveryCode ? 'Enter one of your saved recovery codes.' : 'Enter the 6-digit code from your authenticator app.'}>
+      {useRecoveryCode ? (
+        <form className="form" onSubmit={verifyWithRecoveryCode}>
+          {error && <p className="validation">{error}</p>}
+          <Input
+            label="Recovery code"
+            value={recoveryCode}
+            onChange={(event) => setRecoveryCode(event.target.value.toUpperCase())}
+            placeholder="XXXXX-XXXXX"
+            required
+          />
+          <button className="button button-primary full" type="submit">
+            Verify and continue
+          </button>
+          <p className="form-help">
+            <button type="button" className="button-link" onClick={() => { setUseRecoveryCode(false); setError(''); }}>
+              Use my authenticator app instead
+            </button>
+          </p>
+        </form>
+      ) : (
+        <form className="form" onSubmit={verify}>
+          {error && <p className="validation">{error}</p>}
+          <Input label="Authenticator code" inputMode="numeric" maxLength={6} value={token}
+          onChange={(event) => setToken(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="123456" required />
+          <button className="button button-primary full" type="submit">
+            Verify and continue
+          </button>
+          <p className="form-help">
+            <button type="button" className="button-link" onClick={() => { setUseRecoveryCode(true); setError(''); }}>
+              Use a recovery code instead
+            </button>
+          </p>
+        </form>
+      )}
+      <p className="form-help">
+        <Link href="/login">Back to login</Link>
+      </p>
     </AuthShell>
   );
 }
@@ -506,7 +558,7 @@ export function DashboardLayout({ children }: PropsWithChildren) {
 
   // Do not render protected content until /auth/me has verified the cookie.
   if (authStatus !== 'authenticated') {
-    return <main className="auth-page"><p>Checking authentication...</p></main>;
+    return <main className="auth-page" id="main-content"><p>Checking authentication...</p></main>;
   }
 
   return (
@@ -543,7 +595,7 @@ export function DashboardLayout({ children }: PropsWithChildren) {
             </button>
           </div>
         </header>
-        <main className="page">{children}</main>
+        <main className="page" id="main-content">{children}</main>
       </div>
       {showLogoutConfirm && (
         <div className="modal-backdrop" role="presentation">
@@ -1270,10 +1322,21 @@ const activityIcons: Record<AuditEventType, LucideIcon> = {
   'user.account_locked': AlertTriangle,
   'user.role_changed': UserCog,
   'user.status_changed': UserCog,
+  'user.password_reset_requested': KeyRound,
+  'user.password_reset_completed': KeyRound,
+  'user.logout': LogOut,
+  'user.profile_updated': UserCog,
+  'user.data_exported': Download,
+  'mfa.enabled': ShieldCheck,
+  'mfa.disabled': ShieldOff,
+  'mfa.verify_failed': ShieldAlert,
+  'mfa.recovery_used': ShieldAlert,
   'complaint.created': ClipboardCheck,
   'complaint.status_changed': Activity,
   'complaint.assigned': BriefcaseBusiness,
-  'complaint.note_added': FileText
+  'complaint.note_added': FileText,
+  'upload.succeeded': ImagePlus,
+  'upload.rejected': ImageOff
 };
 
 function formatEventTime(iso: string): string {
@@ -1366,11 +1429,23 @@ export function ActivityLogPage() {
   );
 }
 
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export function ProfilePage() {
   const { notify, currentUser, setCurrentUser } = useFixTrack();
   const [totpSetup, setTotpSetup] = useState<{ qrCodeDataUrl: string; otpauthUrl: string } | null>(null);
   const [totpToken, setTotpToken] = useState('');
+  const [totpPassword, setTotpPassword] = useState('');
   const [totpError, setTotpError] = useState('');
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const saveProfile = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1405,13 +1480,27 @@ export function ProfilePage() {
     setTotpError('');
 
     try {
-      const user = await api.verifyTotpSetup(currentUser.id, totpToken);
-      setCurrentUser({ ...currentUser, ...user, photo: currentUser.photo });
+      const result = await api.verifyTotpSetup(currentUser.id, totpToken, totpPassword);
+      setCurrentUser({ ...currentUser, ...result.user, photo: currentUser.photo });
       setTotpSetup(null);
       setTotpToken('');
+      setTotpPassword('');
+      setRecoveryCodes(result.recoveryCodes);
       notify('Two-factor authentication enabled.');
     } catch (caught) {
-      setTotpError(caught instanceof Error ? caught.message : 'Invalid authenticator code.');
+      setTotpError(caught instanceof Error ? caught.message : 'Invalid authenticator code or password.');
+    }
+  };
+
+  const exportMyData = async (format: 'json' | 'csv') => {
+    setExporting(true);
+    try {
+      const blob = await api.exportMyData(format);
+      downloadBlob(blob, `fixtrack-export.${format}`);
+    } catch (caught) {
+      notify(caught instanceof Error ? caught.message : 'Unable to export your data.');
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -1447,12 +1536,17 @@ export function ProfilePage() {
       setTotpError('Enter your current 6-digit authenticator code to disable two-factor authentication.');
       return;
     }
+    if (!totpPassword) {
+      setTotpError('Enter your current password to disable two-factor authentication.');
+      return;
+    }
 
     try {
-      const user = await api.disableTotp(currentUser.id, totpToken);
+      const user = await api.disableTotp(currentUser.id, totpToken, totpPassword);
       setCurrentUser({ ...currentUser, ...user, photo: currentUser.photo });
       setTotpSetup(null);
       setTotpToken('');
+      setTotpPassword('');
       notify('Two-factor authentication disabled.');
     } catch (caught) {
       setTotpError(caught instanceof Error ? caught.message : 'Unable to disable two-factor authentication.');
@@ -1508,9 +1602,24 @@ export function ProfilePage() {
             )}
           </div>
           {totpError && <p className="validation">{totpError}</p>}
+          {recoveryCodes && (
+            <div className="recovery-codes" role="alert">
+              <strong>Save these recovery codes now - they will not be shown again.</strong>
+              <p className="muted">Each code can be used once to sign in if you lose access to your authenticator app.</p>
+              <ul className="recovery-codes-list">
+                {recoveryCodes.map((code) => (
+                  <li key={code}><code>{code}</code></li>
+                ))}
+              </ul>
+              <button className="button button-secondary" type="button" onClick={() => setRecoveryCodes(null)}>
+                I've saved these codes
+              </button>
+            </div>
+          )}
           {currentUser.totpEnabled && (
             <div className="form">
               <Input label="Current authenticator code" inputMode="numeric" maxLength={6} value={totpToken} onChange={(event) => setTotpToken(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="123456" required />
+              <Input label="Current password" type="password" value={totpPassword} onChange={(event) => setTotpPassword(event.target.value)} required />
               <button className="button button-danger" type="button" onClick={disableTotp}>Disable 2FA</button>
             </div>
           )}
@@ -1518,11 +1627,28 @@ export function ProfilePage() {
             <form className="form" onSubmit={verifyTotpSetup}>
               <img className="totp-qr" src={totpSetup.qrCodeDataUrl} alt="Authenticator setup QR code" />
               <Input label="Authenticator code" inputMode="numeric" maxLength={6} value={totpToken} onChange={(event) => setTotpToken(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="123456" required />
+              <Input label="Current password" type="password" value={totpPassword} onChange={(event) => setTotpPassword(event.target.value)} required />
               <button className="button button-primary" type="submit">
                 Verify and enable
               </button>
             </form>
           )}
+        </Panel>
+        <Panel title="Your data">
+          <div className="security-block">
+            <div>
+              <strong>Export your data</strong>
+              <p className="muted">Download your profile and complaint history.</p>
+            </div>
+            <div className="button-row">
+              <button className="button button-secondary" type="button" disabled={exporting} onClick={() => exportMyData('json')}>
+                Export as JSON
+              </button>
+              <button className="button button-secondary" type="button" disabled={exporting} onClick={() => exportMyData('csv')}>
+                Export as CSV
+              </button>
+            </div>
+          </div>
         </Panel>
       </section>
     </>

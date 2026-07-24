@@ -5,17 +5,19 @@ FixTrack is a full-stack hostel maintenance complaint system with role-based wor
 ## Working features
 
 - Student registration with server-enforced `Student` role.
-- Email/password login using bcrypt password hashes.
-- Optional TOTP authenticator two-factor authentication.
-- Signed JWT sessions in HttpOnly cookies and session-bound CSRF protection.
+- Email/password login using bcrypt password hashes, with escalating lockout after repeated failures.
+- Optional TOTP authenticator two-factor authentication, gated by the account password on enable/disable, with single-use recovery codes for lost-authenticator recovery.
+- Signed JWT sessions in HttpOnly cookies, session-bound CSRF protection, and immediate session invalidation on password reset/change, role change, or MFA disable.
 - Persistent complaints using MongoDB or the local JSON fallback.
 - Student complaint submission, listing, detail view, and pending cancellation.
 - Maintenance assignment filtering, status transitions, and repair notes.
 - Administrator complaint assignment, priority/status management, user creation, role changes, and activation controls.
-- Persisted user profile updates.
+- Persisted user profile updates and self-service personal data export (JSON/CSV).
 - Server-side ownership and role authorization on every protected API workflow.
 - Input validation, XSS/NoSQL sanitization, request-size limits, rate limiting, CORS, HTTPS enforcement, and security headers.
-- Nineteen backend integration/security tests.
+- Activity logging across auth, MFA, profile, complaint, and upload events, with IP/user-agent metadata.
+- Backend integration/security test suite (35 tests) and a CI workflow running it on every push/PR.
+- Docker/`docker-compose` for a one-command local stack (backend + frontend + MongoDB).
 
 ## Roles
 
@@ -50,6 +52,16 @@ npm run dev
 ```
 
 The web application runs on `http://localhost:3000`.
+
+### Docker (alternative to the two steps above)
+
+```powershell
+docker compose up --build
+```
+
+Runs the backend, frontend, and MongoDB together with dev-only default secrets (see
+`docker-compose.yml`). Override `JWT_SECRET`/`TOTP_ENCRYPTION_KEY` via a root `.env` file before
+using this for anything beyond a local machine.
 
 ## Verification
 

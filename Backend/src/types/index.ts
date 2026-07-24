@@ -25,9 +25,15 @@ export interface User {
   password?: string;
   failedLoginAttempts?: number;
   lockedUntil?: string;
+  // How many times this account has been locked out. Drives the escalating lockout duration
+  // in auth.service.ts (15m -> 1h -> 24h); reset on a successful login.
+  lockoutCount?: number;
   totpSecret?: string;
   pendingTotpSecret?: string;
   totpEnabled?: boolean;
+  // Single-use recovery codes (bcrypt hashes only) issued once when TOTP setup completes.
+  // Each is removed from the array as soon as it's consumed via POST /api/auth/totp/recover.
+  recoveryCodeHashes?: string[];
   passwordResetCodeHash?: string;
   passwordResetExpiresAt?: string;
   passwordResetAttempts?: number;
@@ -90,6 +96,13 @@ export type AuditEventType =
   | 'user.status_changed'
   | 'user.password_reset_requested'
   | 'user.password_reset_completed'
+  | 'user.logout'
+  | 'user.profile_updated'
+  | 'user.data_exported'
+  | 'mfa.enabled'
+  | 'mfa.disabled'
+  | 'mfa.verify_failed'
+  | 'mfa.recovery_used'
   | 'complaint.created'
   | 'complaint.status_changed'
   | 'complaint.assigned'
@@ -149,6 +162,12 @@ export interface TotpSetupResponse {
   userId: string;
   otpauthUrl: string;
   qrCodeDataUrl: string;
+}
+
+// Recovery codes are only ever returned once, at the moment TOTP setup is confirmed.
+export interface TotpSetupVerifiedResponse {
+  user: User;
+  recoveryCodes: string[];
 }
 
 export interface AuthLoginResponse {

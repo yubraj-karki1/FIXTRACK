@@ -8,6 +8,7 @@ const safeMethods = new Set(['GET', 'HEAD', 'OPTIONS']);
 const preAuthenticationWrites = new Set([
   '/api/auth/login',
   '/api/auth/totp/verify-login',
+  '/api/auth/totp/recover',
   '/api/users',
   '/api/auth/forgot-password',
   '/api/auth/password-reset',

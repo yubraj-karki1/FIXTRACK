@@ -20,6 +20,9 @@ const securityHeaders = [
 
 const nextConfig = {
   poweredByHeader: false,
+  // A self-contained server bundle, used by Frontend/Dockerfile for a lean runtime image
+  // that doesn't need the full node_modules tree copied in.
+  output: 'standalone',
   turbopack: {
     root: __dirname
   },

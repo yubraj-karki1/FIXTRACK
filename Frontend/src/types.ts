@@ -44,6 +44,11 @@ export interface TotpSetupResponse {
   qrCodeDataUrl: string;
 }
 
+export interface TotpSetupVerifiedResponse {
+  user: User;
+  recoveryCodes: string[];
+}
+
 export interface Complaint {
   id: string;
   title: string;
@@ -73,10 +78,21 @@ export type AuditEventType =
   | 'user.account_locked'
   | 'user.role_changed'
   | 'user.status_changed'
+  | 'user.password_reset_requested'
+  | 'user.password_reset_completed'
+  | 'user.logout'
+  | 'user.profile_updated'
+  | 'user.data_exported'
+  | 'mfa.enabled'
+  | 'mfa.disabled'
+  | 'mfa.verify_failed'
+  | 'mfa.recovery_used'
   | 'complaint.created'
   | 'complaint.status_changed'
   | 'complaint.assigned'
-  | 'complaint.note_added';
+  | 'complaint.note_added'
+  | 'upload.succeeded'
+  | 'upload.rejected';
 
 export interface AuditEvent {
   id: string;

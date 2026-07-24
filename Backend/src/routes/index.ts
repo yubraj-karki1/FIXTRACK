@@ -14,6 +14,8 @@ import type {
   LoginRequestDto,
   PasswordExpiredChangeRequestDto,
   PasswordResetRequestDto,
+  TotpConfirmRequestDto,
+  TotpRecoveryRequestDto,
   TotpSetupRequestDto,
   TotpVerifyRequestDto
 } from '../dtos/auth.dto.js';
@@ -30,6 +32,7 @@ import {
   adminUpdateUserValidationSchema,
   auditQueryValidationSchema,
   createComplaintValidationSchema,
+  exportFormatValidationSchema,
   forgotPasswordValidationSchema,
   loginValidationSchema,
   passwordExpiredChangeValidationSchema,
@@ -145,7 +148,7 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
         { body: await readJsonBody<Record<string, unknown>>(request) },
         loginValidationSchema
       );
-      await authController.login(response, body);
+      await authController.login(request, response, body);
       return;
     }
 
@@ -156,7 +159,7 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
         { body: await readJsonBody<Record<string, unknown>>(request) },
         forgotPasswordValidationSchema
       );
-      await authController.forgotPassword(response, body);
+      await authController.forgotPassword(request, response, body);
       return;
     }
 
@@ -166,7 +169,7 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
         { body: await readJsonBody<Record<string, unknown>>(request) },
         passwordResetValidationSchema
       );
-      await authController.resetPassword(response, body);
+      await authController.resetPassword(request, response, body);
       return;
     }
 
@@ -199,13 +202,25 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
         { body: await readJsonBody<Record<string, unknown>>(request) },
         updateProfileValidationSchema
       );
-      await userController.updateProfile(response, authenticatedUser.id, body);
+      await userController.updateProfile(request, response, authenticatedUser.id, body);
+      return;
+    }
+
+    // Self-service export of the caller's own profile and complaints - never another user's.
+    if (request.method === 'GET' && url.pathname === '/api/users/me/export') {
+      const authenticatedUser = await requireAuthenticatedUser(request);
+      const query = await validateRequest<{ format?: 'json' | 'csv' }>(
+        { query: Object.fromEntries(url.searchParams) },
+        exportFormatValidationSchema,
+        'query'
+      );
+      await userController.exportData(request, response, authenticatedUser.id, query.format || 'json');
       return;
     }
 
     // Logout is idempotent and succeeds even if the session is already expired.
     if (request.method === 'POST' && url.pathname === '/api/auth/logout') {
-      authController.logout(response);
+      await authController.logout(request, response);
       return;
     }
 
@@ -218,8 +233,8 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
 
     // Verify TOTP token and enable 2FA
     if (request.method === 'POST' && url.pathname === '/api/auth/totp/verify-setup') {
-      const body = await readJsonBody<TotpVerifyRequestDto>(request);
-      await authController.verifyTotpSetup(request, response, body.userId, body.token);
+      const body = await readJsonBody<TotpConfirmRequestDto>(request);
+      await authController.verifyTotpSetup(request, response, body);
       return;
     }
 
@@ -230,10 +245,17 @@ export async function handleRoutes(request: IncomingMessage, response: ServerRes
       return;
     }
 
+    // Log in using a single-use recovery code instead of an authenticator code.
+    if (request.method === 'POST' && url.pathname === '/api/auth/totp/recover') {
+      const body = await readJsonBody<TotpRecoveryRequestDto>(request);
+      await authController.verifyTotpRecovery(request, response, body);
+      return;
+    }
+
     //Disable two-factor authentication
     if (request.method === 'POST' && url.pathname === '/api/auth/totp/disable') {
-      const body = await readJsonBody<TotpVerifyRequestDto>(request);
-      await authController.disableTotp(request, response, body.userId, body.token);
+      const body = await readJsonBody<TotpConfirmRequestDto>(request);
+      await authController.disableTotp(request, response, body);
       return;
     }
 

@@ -5,7 +5,7 @@
 import { randomInt } from 'node:crypto';
 import { userRepository } from '../repositories/user.repository.js';
 import { HttpError } from '../errors/http-error.js';
-import { auditService } from './audit.service.js';
+import { auditService, type AuditContext } from './audit.service.js';
 import { notificationService } from './notification.service.js';
 import {
   appendPasswordHistory,
@@ -20,7 +20,14 @@ import type { User } from '../types/index.js';
 
 // Security configuration for failed login attempts
 const maxFailedLoginAttempts = 5;
-const lockDurationMs = 15 * 60 * 1000; // 15 minutes in milliseconds
+// Escalates on repeated lockout cycles: 15 minutes, then 1 hour, then 24 hours for every
+// lockout after that - a persistent attacker gets penalized more heavily each time.
+const lockDurationTiersMs = [15 * 60 * 1000, 60 * 60 * 1000, 24 * 60 * 60 * 1000];
+
+function getLockDurationMs(lockoutCount: number): number {
+  const tier = Math.min(lockoutCount, lockDurationTiersMs.length - 1);
+  return lockDurationTiersMs[tier];
+}
 
 // Security configuration for the forgot-password flow
 const passwordResetCodeLifetimeMs = 15 * 60 * 1000;
@@ -50,7 +57,7 @@ function getRetryAfterSeconds(lockedUntil: Date): string {
 }
 
 export const authService = {
-  async validateLogin(email: string, password: string): Promise<User> {
+  async validateLogin(email: string, password: string, context?: AuditContext): Promise<User> {
     const user = await userRepository.findByEmail(email);
     if (!user) {
       throw new HttpError(401, 'Invalid email or password');
@@ -59,7 +66,7 @@ export const authService = {
     // Check if account is locked from failed attempts
     const activeLock = getActiveLock(user);
     if (activeLock) {
-      throw new HttpError(423, 'Account is locked. Please try again after 15 minutes.', {
+      throw new HttpError(423, 'Account is locked. Please try again later.', {
         'Retry-After': getRetryAfterSeconds(activeLock)
       });
     }
@@ -70,18 +77,21 @@ export const authService = {
 
       // Lock account after max failed attempts
       if (failedLoginAttempts >= maxFailedLoginAttempts) {
-        const lockedUntil = new Date(Date.now() + lockDurationMs);
+        const lockoutCount = (user.lockoutCount ?? 0) + 1;
+        const lockedUntil = new Date(Date.now() + getLockDurationMs(user.lockoutCount ?? 0));
         await userRepository.update(user.id, {
           failedLoginAttempts,
-          lockedUntil: lockedUntil.toISOString()
+          lockedUntil: lockedUntil.toISOString(),
+          lockoutCount
         });
         void auditService.record(
           'user.account_locked',
-          `Account locked for ${user.email} after ${failedLoginAttempts} failed login attempts.`,
+          `Account locked for ${user.email} after ${failedLoginAttempts} failed login attempts (lockout #${lockoutCount}).`,
           { id: user.id, name: user.name, role: user.role },
-          user.id
+          user.id,
+          context
         );
-        throw new HttpError(423, 'Too many failed login attempts. Account is locked for 15 minutes.', {
+        throw new HttpError(423, 'Too many failed login attempts. Account is locked.', {
           'Retry-After': getRetryAfterSeconds(lockedUntil)
         });
       }
@@ -94,7 +104,8 @@ export const authService = {
         'user.login_failed',
         `Failed login attempt for ${user.email}.`,
         { id: user.id, name: user.name, role: user.role },
-        user.id
+        user.id,
+        context
       );
       throw new HttpError(401, `Invalid email or password. ${maxFailedLoginAttempts - failedLoginAttempts} attempts remaining.`);
     }
@@ -106,7 +117,8 @@ export const authService = {
 
     const updates: Partial<User> = {
       failedLoginAttempts: undefined,
-      lockedUntil: undefined
+      lockedUntil: undefined,
+      lockoutCount: undefined
     };
 
     // Upgrade legacy non-hashed passwords to bcrypt on successful login
@@ -119,12 +131,13 @@ export const authService = {
       'user.login_success',
       `${updatedUser.name} logged in.`,
       { id: updatedUser.id, name: updatedUser.name, role: updatedUser.role },
-      updatedUser.id
+      updatedUser.id,
+      context
     );
     return updatedUser;
   },
 
-  async requestPasswordReset(email: string): Promise<void> {
+  async requestPasswordReset(email: string, context?: AuditContext): Promise<void> {
     const user = await userRepository.findByEmail(email);
     // Behave identically whether or not the account exists, so this endpoint cannot be used
     // to discover which emails are registered.
@@ -146,11 +159,12 @@ export const authService = {
       'user.password_reset_requested',
       `${user.name} requested a password reset.`,
       { id: user.id, name: user.name, role: user.role },
-      user.id
+      user.id,
+      context
     );
   },
 
-  async resetPassword(email: string, code: string, newPassword: string): Promise<void> {
+  async resetPassword(email: string, code: string, newPassword: string, context?: AuditContext): Promise<void> {
     const user = await userRepository.findByEmail(email);
     if (!user || !user.passwordResetCodeHash || !user.passwordResetExpiresAt) {
       throw invalidResetCodeError();
@@ -174,13 +188,13 @@ export const authService = {
       throw invalidResetCodeError();
     }
 
-    const passwordValidation = validatePasswordStrength(newPassword, user.email);
+    const passwordValidation = validatePasswordStrength(newPassword, user.email, user.name);
     if (!passwordValidation.valid) {
       throw new HttpError(400, passwordValidation.errors.join(' '));
     }
 
     if (await wasPasswordUsedBefore(newPassword, user.password, user.passwordHistory)) {
-      throw new HttpError(400, `You cannot reuse a recent password. 
+      throw new HttpError(400, `You cannot reuse a recent password.
       Choose one you haven't used in your last ${passwordHistoryLimit} passwords.`);
     }
 
@@ -202,20 +216,21 @@ export const authService = {
       'user.password_reset_completed',
       `${user.name} reset their password.`,
       { id: user.id, name: user.name, role: user.role },
-      user.id
+      user.id,
+      context
     );
   },
 
   //Replaces a password that failed the expiry check at login. Called only after the
   //controller has verified the caller holds the short-lived pending-password-change cookie.
 
-  async changePasswordAfterExpiry(userId: string, newPassword: string): Promise<void> {
+  async changePasswordAfterExpiry(userId: string, newPassword: string, context?: AuditContext): Promise<void> {
     const user = await userRepository.findById(userId);
     if (!user) {
       throw new HttpError(404, 'User not found');
     }
 
-    const passwordValidation = validatePasswordStrength(newPassword, user.email);
+    const passwordValidation = validatePasswordStrength(newPassword, user.email, user.name);
     if (!passwordValidation.valid) {
       throw new HttpError(400, passwordValidation.errors.join(' '));
     }
@@ -230,6 +245,7 @@ export const authService = {
       passwordHistory: appendPasswordHistory(user.password, user.passwordHistory),
       failedLoginAttempts: undefined,
       lockedUntil: undefined,
+      lockoutCount: undefined,
       // Invalidate every session issued before this change, including a stolen one. The
       // controller re-fetches the user and reissues a fresh session for this caller.
       sessionVersion: (user.sessionVersion ?? 0) + 1
@@ -239,7 +255,8 @@ export const authService = {
       'user.password_reset_completed',
       `${user.name} updated an expired password.`,
       { id: user.id, name: user.name, role: user.role },
-      user.id
+      user.id,
+      context
     );
   }
 };
