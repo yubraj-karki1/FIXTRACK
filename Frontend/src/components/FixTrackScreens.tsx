@@ -868,6 +868,7 @@ export function ComplaintDetailPage({ id }: { id: string }) {
 
 export function StaffDashboardPage() {
   const { complaints, setComplaints, notify } = useFixTrack();
+  const [query, setQuery] = useState('');
   // Administrators can also open this page and see every complaint, so "assigned" must be
   // filtered on staffUserId directly rather than just excluding Closed items — otherwise
   // unassigned, still-Pending complaints show up here with Start/Resolve controls that can
@@ -876,6 +877,16 @@ export function StaffDashboardPage() {
   // Visible to every staff member (read-only) so they can see what's waiting for an
   // administrator to assign; only an administrator can actually assign it to someone.
   const pendingQueue = complaints.filter((complaint) => complaint.status === 'Pending');
+
+  // Most urgent first, so an Emergency repair never gets buried under older Low-priority
+  // work; ties keep their original (submission) order since Array#sort is stable.
+  const displayedAssigned = assigned
+    .filter((complaint) =>
+      `${complaint.title} ${complaint.building} ${complaint.room} ${complaint.category} ${complaint.student}`
+        .toLowerCase()
+        .includes(query.toLowerCase())
+    )
+    .sort((a, b) => priorities.indexOf(b.priority) - priorities.indexOf(a.priority));
 
   const updateStatus = async (id: string, status: ComplaintStatus) => {
     try {
@@ -910,39 +921,74 @@ export function StaffDashboardPage() {
       <StatsGrid
         stats={[
           { label: 'Assigned complaints', value: assigned.length, icon: ClipboardCheck },
-          { label: 'Pending work', value: complaints.filter((complaint) => complaint.status === 'Assigned').length, icon: Clock3, tone: 'pending' },
+          { label: 'Not started yet', value: complaints.filter((complaint) => complaint.status === 'Assigned').length, icon: Clock3, tone: 'pending' },
           { label: 'In-progress work', value: complaints.filter((complaint) => complaint.status === 'In Progress').length, icon: Activity, tone: 'active' },
           { label: 'Completed work', value: complaints.filter((complaint) => complaint.status === 'Resolved' || complaint.status === 'Closed').length, icon: CheckCircle2, tone: 'resolved' }
         ]}
       />
       <Panel title="Assigned complaint list">
-        <div className="work-list">
-          {assigned.map((complaint) => (
-            <form className="work-card" key={complaint.id} onSubmit={(event) => addNote(event, complaint.id)}>
-              <div>
-                <Link href={`/complaints/${complaint.id}`}>{complaint.title}</Link>
-                <p>
-                  {complaint.building}, Room {complaint.room} • {complaint.category}
-                </p>
-                <p className="muted">
-                  Submitted by {complaint.student}
-                  {complaint.studentPhone ? ` • ${complaint.studentPhone}` : ''}
-                </p>
-                <Badge label={complaint.priority} type="priority" /> <Badge label={complaint.status} />
-              </div>
-              <div className="quick-actions">
-                <button type="button" disabled={complaint.status !== 'Assigned'} onClick={() => updateStatus(complaint.id, 'In Progress')}>Start</button>
-                <button type="button" disabled={complaint.status !== 'In Progress'} onClick={() => updateStatus(complaint.id, 'Resolved')}>Resolve</button>
-              </div>
-              <textarea name="note" aria-label={`Repair notes for ${complaint.id}`} placeholder="Add repair notes..." rows={2} />
-              <button className="button button-secondary" type="submit">Add note</button>
-            </form>
-          ))}
-        </div>
+        {assigned.length > 0 && (
+          <div className="table-tools">
+            <div className="topbar-search">
+              <Search />
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search your assigned work..." />
+            </div>
+            <span className="muted">
+              Showing {displayedAssigned.length} of {assigned.length}, most urgent first
+            </span>
+          </div>
+        )}
+        {displayedAssigned.length ? (
+          <div className="work-list">
+            {displayedAssigned.map((complaint) => (
+              <form
+                className={`work-card priority-edge-${complaint.priority.toLowerCase()}`}
+                key={complaint.id}
+                onSubmit={(event) => addNote(event, complaint.id)}
+              >
+                <div>
+                  <Link href={`/complaints/${complaint.id}`}>{complaint.title}</Link>
+                  <p>
+                    {complaint.building}, Room {complaint.room} • {complaint.category}
+                  </p>
+                  <p className="muted">
+                    Submitted by {complaint.student}
+                    {complaint.studentPhone ? ` • ${complaint.studentPhone}` : ''}
+                  </p>
+                  <Badge label={complaint.priority} type="priority" /> <Badge label={complaint.status} />
+                </div>
+                <div className="quick-actions">
+                  {/* Only the one action that's actually valid at this stage is shown - a
+                      disabled sibling button barely reads as "off" in dark mode, which just
+                      looked broken once work was done. */}
+                  {complaint.status === 'Assigned' && (
+                    <button className="button button-secondary" type="button" onClick={() => updateStatus(complaint.id, 'In Progress')}>Start</button>
+                  )}
+                  {complaint.status === 'In Progress' && (
+                    <button className="button button-secondary" type="button" onClick={() => updateStatus(complaint.id, 'Resolved')}>Resolve</button>
+                  )}
+                  {(complaint.status === 'Resolved' || complaint.status === 'Closed') && (
+                    <span className="quick-actions-done">
+                      <CheckCircle2 size={16} /> Completed
+                    </span>
+                  )}
+                </div>
+                <textarea name="note" aria-label={`Repair notes for ${complaint.id}`} placeholder="Add repair notes..." rows={2} />
+                <button className="button button-secondary" type="submit">Add note</button>
+              </form>
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            title={assigned.length ? 'No matches' : 'Nothing assigned yet'}
+            text={assigned.length ? 'Try a different search.' : 'Complaints an administrator assigns to you will show up here.'}
+            compact
+          />
+        )}
       </Panel>
-      <Panel title="Pending complaints (unassigned)">
+      <Panel title="Unassigned queue">
         {pendingQueue.length === 0 ? (
-          <p className="muted">No unassigned complaints are waiting right now.</p>
+          <EmptyState title="Queue is empty" text="No unassigned complaints are waiting right now." compact />
         ) : (
           <div className="work-list">
             {pendingQueue.map((complaint) => (
@@ -1022,12 +1068,19 @@ export function AdminDashboardPage() {
 }
 
 
+type AssignmentFilter = 'All' | 'Assigned' | 'Unassigned';
+
 export function AdminComplaintsPage() {
   const { complaints, setComplaints, notify } = useFixTrack();
   const [staffUsers, setStaffUsers] = useState<User[]>([]);
   const [query, setQuery] = useState('');
-  const displayedComplaints = complaints.filter((complaint) =>
-    `${complaint.id} ${complaint.title} ${complaint.building} ${complaint.student}`.toLowerCase().includes(query.toLowerCase())
+  const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilter>('All');
+  const displayedComplaints = complaints.filter(
+    (complaint) =>
+      (assignmentFilter === 'All' ||
+        (assignmentFilter === 'Assigned' && complaint.staffUserId) ||
+        (assignmentFilter === 'Unassigned' && !complaint.staffUserId)) &&
+      `${complaint.id} ${complaint.title} ${complaint.building} ${complaint.student}`.toLowerCase().includes(query.toLowerCase())
   );
 
   useEffect(() => {
@@ -1052,51 +1105,73 @@ export function AdminComplaintsPage() {
   return (
     <AdminOnlyGate title="Complaint management" description="Only administrators can assign staff, change priority, and update complaint history.">
       <PageHeader title="Complaint management" description="Assign staff, change priority or status, and view complaint history." />
-      <Panel>
-        <div className="table-tools">
-          <div className="topbar-search">
-            <Search />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search all complaints..." />
+      <section className="filter-bar">
+        <div className="topbar-search">
+          <Search />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search all complaints..." />
+        </div>
+        <label>
+          Assignment
+          <select value={assignmentFilter} onChange={(event) => setAssignmentFilter(event.target.value as AssignmentFilter)}>
+            <option>All</option>
+            <option>Assigned</option>
+            <option>Unassigned</option>
+          </select>
+        </label>
+      </section>
+      {displayedComplaints.length ? (
+        <Panel>
+          <div className="table-tools">
+            <span className="muted">
+              Showing {displayedComplaints.length} of {complaints.length} complaint{complaints.length === 1 ? '' : 's'}
+            </span>
           </div>
-        </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr><th>ID</th><th>Title</th><th>Student</th><th>Building</th><th>Priority</th><th>Status</th><th>Assign staff</th><th>History</th></tr>
-            </thead>
-            <tbody>
-              {displayedComplaints.map((complaint) => (
-                <tr key={complaint.id}>
-                  <td>{complaint.id}</td>
-                  <td>
-                    <Link href={`/complaints/${complaint.id}`}>{complaint.title}</Link>
-                    <span>{complaint.category}</span>
-                  </td>
-                  <td><Link href={`/admin/users/${complaint.studentUserId}`}>{complaint.student}</Link></td>
-                  <td>{complaint.building}</td>
-                  <td>
-                    <select value={complaint.priority} onChange={(event) => update(complaint.id, { priority: event.target.value as ComplaintPriority })}>
-                      {priorities.map((priority) => <option key={priority}>{priority}</option>)}
-                    </select>
-                  </td>
-                  <td>
-                    <select value={complaint.status} onChange={(event) => update(complaint.id, { status: event.target.value as ComplaintStatus })}>
-                      {statuses.map((status) => <option key={status}>{status}</option>)}
-                    </select>
-                  </td>
-                  <td>
-                    <select value={complaint.staffUserId || ''} onChange={(event) => update(complaint.id, { staffUserId: event.target.value })}>
-                      <option value="" disabled>Unassigned</option>
-                      {staffUsers.map((staff) => <option key={staff.id} value={staff.id}>{staff.name}</option>)}
-                    </select>
-                  </td>
-                  <td>{complaint.updates.join(' -> ')}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Panel>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr><th>ID</th><th>Title</th><th>Student</th><th>Building</th><th>Priority</th><th>Status</th><th>Assign staff</th><th>History</th></tr>
+              </thead>
+              <tbody>
+                {displayedComplaints.map((complaint) => (
+                  <tr key={complaint.id}>
+                    <td>{complaint.id}</td>
+                    <td>
+                      <Link href={`/complaints/${complaint.id}`}>{complaint.title}</Link>
+                      <span>{complaint.category}</span>
+                    </td>
+                    <td><Link href={`/admin/users/${complaint.studentUserId}`}>{complaint.student}</Link></td>
+                    <td>{complaint.building}</td>
+                    <td>
+                      <select value={complaint.priority} onChange={(event) => update(complaint.id, { priority: event.target.value as ComplaintPriority })}>
+                        {priorities.map((priority) => <option key={priority}>{priority}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <select value={complaint.status} onChange={(event) => update(complaint.id, { status: event.target.value as ComplaintStatus })}>
+                        {statuses.map((status) => <option key={status}>{status}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <select
+                        value={complaint.staffUserId || ''}
+                        aria-label={`Assigned staff for ${complaint.id}`}
+                        onChange={(event) => update(complaint.id, { staffUserId: event.target.value })}
+                      >
+                        {/* Selectable, not just a placeholder - choosing it clears the assignment. */}
+                        <option value="">Unassigned</option>
+                        {staffUsers.map((staff) => <option key={staff.id} value={staff.id}>{staff.name}</option>)}
+                      </select>
+                    </td>
+                    <td>{complaint.updates.join(' -> ')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      ) : (
+        <EmptyState title="No complaints found" text="Try a different search or assignment filter." />
+      )}
     </AdminOnlyGate>
   );
 }

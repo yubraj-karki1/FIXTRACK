@@ -163,14 +163,25 @@ export const complaintService = {
       if (input.image !== undefined) updates.image = input.image;
 
       let nextStatus = input.status;
-      if (input.staffUserId) {
-        const staff = await userRepository.findById(input.staffUserId);
-        if (!staff || staff.role !== 'Maintenance Staff' || staff.status !== 'Active') {
-          throw new HttpError(400, 'Assigned user must be active maintenance staff');
+      // Distinguish "field omitted" (undefined - no change) from "field explicitly cleared"
+      // (empty string - unassign) so an admin can undo a wrong assignment, not just change it.
+      if (input.staffUserId !== undefined) {
+        if (input.staffUserId === '') {
+          updates.staffUserId = undefined;
+          updates.staff = 'Unassigned';
+          // Undo the auto-transition below if no work has started yet; once a staff member
+          // has actually begun work (In Progress/Resolved/Closed), unassigning only clears
+          // who owns it - it doesn't retroactively unclaim the progress already made.
+          if (!nextStatus && complaint.status === 'Assigned') nextStatus = 'Pending';
+        } else {
+          const staff = await userRepository.findById(input.staffUserId);
+          if (!staff || staff.role !== 'Maintenance Staff' || staff.status !== 'Active') {
+            throw new HttpError(400, 'Assigned user must be active maintenance staff');
+          }
+          updates.staffUserId = staff.id;
+          updates.staff = staff.name;
+          if (!nextStatus && complaint.status === 'Pending') nextStatus = 'Assigned';
         }
-        updates.staffUserId = staff.id;
-        updates.staff = staff.name;
-        if (!nextStatus && complaint.status === 'Pending') nextStatus = 'Assigned';
       }
 
       if (nextStatus) {
@@ -185,8 +196,11 @@ export const complaintService = {
     if (!updated) throw new HttpError(404, 'Complaint not found');
 
     const auditActor = { id: user.id, name: user.name, role: user.role };
-    if (updates.staffUserId !== undefined) {
-      void auditService.record('complaint.assigned', `${user.name} assigned complaint ${updated.id} to ${updated.staff}.`, auditActor, updated.id);
+    if ('staffUserId' in updates) {
+      const message = updated.staffUserId
+        ? `${user.name} assigned complaint ${updated.id} to ${updated.staff}.`
+        : `${user.name} unassigned complaint ${updated.id}.`;
+      void auditService.record('complaint.assigned', message, auditActor, updated.id);
     }
     if (updates.status !== undefined) {
       void auditService.record('complaint.status_changed', `${user.name} changed complaint ${updated.id} status to ${updated.status}.`, auditActor, updated.id);

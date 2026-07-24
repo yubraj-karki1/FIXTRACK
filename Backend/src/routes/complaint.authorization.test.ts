@@ -162,3 +162,13 @@ test('administrators can assign active maintenance staff and update complaint pr
   assert.equal(updated.status, 'Assigned');
   assert.equal(updated.priority, 'Emergency');
 });
+
+test('administrators can unassign a complaint, clearing staff and reverting it to pending', async () => {
+  // FX-AUTH-3 starts Assigned to U-2002 and is untouched by any earlier test in this file.
+  const response = await write('/api/complaints/FX-AUTH-3', 'U-3001', 'PATCH', { staffUserId: '' });
+  const updated = (await response.json() as { data: Complaint }).data;
+  assert.equal(response.status, 200);
+  assert.equal(updated.staffUserId, undefined);
+  assert.equal(updated.staff, 'Unassigned');
+  assert.equal(updated.status, 'Pending');
+});

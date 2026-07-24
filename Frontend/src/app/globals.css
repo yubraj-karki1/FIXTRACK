@@ -1100,6 +1100,20 @@ td a {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 14px;
+  border-left: 4px solid transparent;
+}
+
+.priority-edge-emergency,
+.priority-edge-high {
+  border-left-color: #ef4444;
+}
+
+.priority-edge-medium {
+  border-left-color: #f59e0b;
+}
+
+.priority-edge-low {
+  border-left-color: #38bdf8;
 }
 
 .work-card textarea {
@@ -1117,6 +1131,14 @@ td a {
   align-items: center;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.quick-actions-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--success);
+  font-weight: 750;
 }
 
 .quick-actions button,

@@ -33,14 +33,29 @@ export const complaintRepository = {
 
   async update(id: string, updates: Partial<Complaint>): Promise<Complaint | undefined> {
     if (mongo.isConnected) {
-      const update: UpdateFilter<Complaint> = { $set: updates };
+      // A field set to `undefined` (e.g. clearing staffUserId on unassign) must be $unset -
+      // the MongoDB driver silently drops undefined values from $set, so without this split
+      // an "unassign" update would validate and return 200 but never actually clear the field.
+      const fieldsToSet = Object.fromEntries(Object.entries(updates).filter(([, value]) => value !== undefined)) as Partial<Complaint>;
+      const fieldsToUnset = Object.fromEntries(Object.entries(updates).filter(([, value]) => value === undefined).map(([key]) => [key, '' as const]));
+      const update: UpdateFilter<Complaint> = {
+        ...(Object.keys(fieldsToSet).length ? { $set: fieldsToSet } : {}),
+        ...(Object.keys(fieldsToUnset).length ? { $unset: fieldsToUnset } : {})
+      };
       await mongo.complaints().updateOne({ id }, update);
       return this.findById(id);
     }
 
     const complaint = database.complaints.find((item) => item.id === id);
     if (!complaint) return undefined;
-    Object.assign(complaint, updates);
+    Object.entries(updates).forEach(([key, value]) => {
+      if (value === undefined) {
+        delete complaint[key as keyof Complaint];
+        return;
+      }
+
+      Object.assign(complaint, { [key]: value });
+    });
     saveComplaints();
     return complaint;
   }
