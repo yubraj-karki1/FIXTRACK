@@ -2,3 +2,7 @@ node_modules
 dist
 *.log
 .env.local
+
+# JSON fallback "database" (only used when MONGODB_URI is unset) - mutable runtime data,
+# regenerated automatically from the built-in demo seed if missing. Never commit real data here.
+data/*.json
